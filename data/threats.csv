@@ -1,2 +1,21 @@
 threat_id,threat_type,severity,source,country,date,status
 THR001,Phishing,High,Email,India,2026-08-21,Active
+THR002,Malware,Medium,Web,USA,2026-08-20,Investigating
+THR003,Ransomware,Critical,Forum,UK,2026-08-19,Active
+THR004,Data Leak,High,API,Germany,2026-08-18,Resolved
+THR005,Credential Theft,Low,Email,Japan,2026-08-17,Resolved
+THR006,Phishing,Medium,Web,India,2026-08-16,Investigating
+THR007,Malware,High,API,USA,2026-08-15,Active
+THR008,Ransomware,Critical,Forum,Germany,2026-08-14,Active
+THR009,Data Leak,Medium,Email,UK,2026-08-13,Resolved
+THR010,Credential Theft,High,Web,Japan,2026-08-12,Investigating
+THR011,Phishing,Low,API,India,2026-08-11,Resolved
+THR012,Malware,High,Forum,USA,2026-08-10,Active
+THR013,Ransomware,Medium,Email,UK,2026-08-09,Investigating
+THR014,Data Leak,Critical,Web,Germany,2026-08-08,Active
+THR015,Credential Theft,Medium,API,Japan,2026-08-07,Resolved
+THR016,Phishing,High,Forum,India,2026-08-06,Active
+THR017,Malware,Low,Email,USA,2026-08-05,Resolved
+THR018,Ransomware,High,Web,UK,2026-08-04,Investigating
+THR019,Data Leak,Medium,API,Germany,2026-08-03,Resolved
+THR020,Credential Theft,Critical,Forum,Japan,2026-08-02,Active
