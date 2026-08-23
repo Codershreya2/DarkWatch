@@ -72,10 +72,10 @@ if not st.session_state['logged_in']:
                         }
                         st.success(f"✅ Success! Account created for '{new_user}'. Please go to Login tab.")
 
-    st.stop() # Script yahan ruk jayegi agar login nahi hai
+    st.stop() # Script will stop here if not login
 
 # ==========================================
-# 📊 PILLAR 2: DASHBOARD (Shreya & Simran's Code)
+# 📊 PILLAR 2: DASHBOARD 
 # ==========================================
 
 # --- Sidebar info ---
@@ -114,6 +114,53 @@ if missing_columns:
     st.stop()
 
 data["date"] = pd.to_datetime(data["date"], errors="coerce")
+
+# ==========================================
+# 🛠️ ADMIN CONTROL PANEL (Add New Threat)
+# ==========================================
+import datetime
+
+# Yeh feature sirf Admin ko dikhega!
+if st.session_state['role'] == "Admin":
+    with st.sidebar.expander("🛠️ Admin Tools: Add Threat"):
+        with st.form("add_threat_form"):
+            st.write("Inject New Threat to Database")
+            
+            # Inputs
+            new_type = st.selectbox("Threat Type", ["Phishing", "Ransomware", "Data Breach", "Zero-Day Exploit", "Botnet"])
+            new_severity = st.selectbox("Severity", ["Low", "Medium", "High", "Critical"])
+            new_source = st.text_input("Source Forum/Site", "RaidForums")
+            
+            # Yahan hum naya country dalenge taaki filter/graph me automatically add ho jaye
+            new_country = st.text_input("Target Country", "Japan") 
+            
+            add_btn = st.form_submit_button("Inject Threat")
+            
+            if add_btn:
+                # 1. Naya data record 
+                new_id = f"T{datetime.datetime.now().strftime('%M%S')}"
+                current_date = datetime.datetime.now().strftime('%Y-%m-%d')
+                
+                new_record = pd.DataFrame([{
+                    "threat_id": new_id,
+                    "threat_type": new_type,
+                    "severity": new_severity,
+                    "source": new_source,
+                    "country": new_country,
+                    "date": current_date,
+                    "status": "Active"
+                }])
+                
+                # 2. Old CSV mein naya record add 
+                try:
+                    updated_data = pd.concat([data, new_record], ignore_index=True)
+                    updated_data.to_csv(DATA_FILE, index=False)
+                    st.success(f"✅ Threat added from {new_country}! Reloading dashboard...")
+                    st.rerun() # Page refresh karega taaki graphs update ho jayein
+                except Exception as e:
+                    st.error(f"Error saving data: {e}")
+
+# ==========================================
 
 st.title("🛡️ DarkWatch")
 st.subheader("Dark Web Threat Intelligence Dashboard")
