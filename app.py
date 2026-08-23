@@ -116,53 +116,76 @@ if missing_columns:
 data["date"] = pd.to_datetime(data["date"], errors="coerce")
 
 # ==========================================
-# 🕵️ THREAT DETECTION ENGINE (Real AI/Logic)
+# 🕵️ THREAT DETECTION & RISK SCORING ENGINE
 # ==========================================
 import datetime
 
-# Aapka Threat Analysis Logic
-def analyze_text_for_threats(text):
+# AI Risk Scoring Logic
+def calculate_risk_score(text):
     text = text.lower()
+    score = 10 # Base minimum score
+    detected_type = "Suspicious Activity"
     
-    # Detection Rules
+    # 1. Base Score depending on Threat Type
     if any(word in text for word in ["0-day", "exploit", "cve"]):
-        return "Zero-Day Exploit", "Critical"
+        score += 80
+        detected_type = "Zero-Day Exploit"
     elif any(word in text for word in ["ransom", "encrypt", "bitcoin"]):
-        return "Ransomware", "Critical"
+        score += 75
+        detected_type = "Ransomware"
     elif any(word in text for word in ["database", "leak", "dump", "passwords"]):
-        return "Data Breach", "High"
+        score += 65
+        detected_type = "Data Breach"
     elif any(word in text for word in ["login", "fake page", "phish"]):
-        return "Phishing", "Medium"
+        score += 45
+        detected_type = "Phishing"
     elif any(word in text for word in ["ddos", "botnet", "c2"]):
-        return "Botnet", "Medium"
+        score += 35
+        detected_type = "Botnet"
+        
+    # 2. Context Multiplier (High value targets)
+    if any(word in text for word in ["bank", "government", "military", "hospital"]):
+        score += 15 # Risk will increase if target is sensitive 
+        
+    # Cap score at 100 max
+    score = min(score, 100)
+    
+    # 3. Dynamic Severity Assignment
+    if score >= 90:
+        severity = "Critical"
+    elif score >= 70:
+        severity = "High"
+    elif score >= 40:
+        severity = "Medium"
     else:
-        return "Suspicious Activity", "Low"
+        severity = "Low"
+        
+    return detected_type, severity, score
 
-# Yeh engine Admin aur Analyst dono use kar sakte hain
+# Sidebar UI
 if st.session_state['role'] in ["Admin", "Analyst"]:
-    with st.sidebar.expander("🕵️ Scanner: Detect Threat from Text"):
+    with st.sidebar.expander("🕵️ Scanner: Detect & Score Threat"):
         with st.form("detect_threat_form"):
             st.write("Paste suspicious Dark Web text to analyze")
             
-            # User sirf raw text paste karega
-            suspicious_text = st.text_area("Dark Web Post / Intercepted Chat")
-            source_input = st.text_input("Source (e.g., Telegram, RaidForums)", "Telegram")
+            suspicious_text = st.text_area("Dark Web Intercept")
+            source_input = st.text_input("Source", "Telegram")
             country_input = st.text_input("Target Country", "India")
             
-            analyze_btn = st.form_submit_button("Analyze & Inject")
+            analyze_btn = st.form_submit_button("Analyze Threat")
             
             if analyze_btn and suspicious_text:
-                # 1. Aapka function text padh kar threat detect kar raha hai!
-                detected_type, detected_severity = analyze_text_for_threats(suspicious_text)
+                # Engine Run 
+                d_type, d_severity, risk_score = calculate_risk_score(suspicious_text)
                 
-                # 2. Database me save karna
+                # Database Save Logic
                 new_id = f"T{datetime.datetime.now().strftime('%M%S')}"
                 current_date = datetime.datetime.now().strftime('%Y-%m-%d')
                 
                 new_record = pd.DataFrame([{
                     "threat_id": new_id,
-                    "threat_type": detected_type,
-                    "severity": detected_severity,
+                    "threat_type": d_type,
+                    "severity": d_severity,
                     "source": source_input,
                     "country": country_input,
                     "date": current_date,
@@ -172,7 +195,11 @@ if st.session_state['role'] in ["Admin", "Analyst"]:
                 try:
                     updated_data = pd.concat([data, new_record], ignore_index=True)
                     updated_data.to_csv(DATA_FILE, index=False)
-                    st.success(f"🚨 Detected: {detected_type} ({detected_severity})! Reloading...")
+                    
+                    # Result mein Risk Score show hoga
+                    st.success(f"🚨 Engine Result: {d_type}")
+                    st.warning(f"🔢 Risk Score: {risk_score}/100 ➔ [{d_severity}]")
+                    
                     st.rerun() 
                 except Exception as e:
                     st.error(f"Error saving data: {e}")
