@@ -120,13 +120,16 @@ data["date"] = pd.to_datetime(data["date"], errors="coerce")
 # ==========================================
 import datetime
 
-# AI Risk Scoring Logic
+# 1. Result yaad rakhne ke liye Session State
+if 'last_scan' not in st.session_state:
+    st.session_state['last_scan'] = None
+
+# Aapka AI Risk Scoring Logic
 def calculate_risk_score(text):
     text = text.lower()
-    score = 10 # Base minimum score
+    score = 10 
     detected_type = "Suspicious Activity"
     
-    # 1. Base Score depending on Threat Type
     if any(word in text for word in ["0-day", "exploit", "cve"]):
         score += 80
         detected_type = "Zero-Day Exploit"
@@ -143,14 +146,11 @@ def calculate_risk_score(text):
         score += 35
         detected_type = "Botnet"
         
-    # 2. Context Multiplier (High value targets)
     if any(word in text for word in ["bank", "government", "military", "hospital"]):
-        score += 15 # Risk will increase if target is sensitive 
+        score += 15 
         
-    # Cap score at 100 max
     score = min(score, 100)
     
-    # 3. Dynamic Severity Assignment
     if score >= 90:
         severity = "Critical"
     elif score >= 70:
@@ -164,7 +164,20 @@ def calculate_risk_score(text):
 
 # Sidebar UI
 if st.session_state['role'] in ["Admin", "Analyst"]:
-    with st.sidebar.expander("🕵️ Scanner: Detect & Score Threat"):
+    with st.sidebar.expander("🕵️ Scanner: Detect & Score Threat", expanded=True):
+        
+        # 2. Agar purana result save hai, toh yahan ruka rahega!
+        if st.session_state['last_scan']:
+            st.success(f"🚨 Result: {st.session_state['last_scan']['type']}")
+            st.warning(f"🔢 Score: {st.session_state['last_scan']['score']}/100 ➔ [{st.session_state['last_scan']['severity']}]")
+            
+            # Ek chota clear button taaki agla scan kar sakein
+            if st.button("Clear Result"):
+                st.session_state['last_scan'] = None
+                st.rerun()
+
+        st.divider()
+        
         with st.form("detect_threat_form"):
             st.write("Paste suspicious Dark Web text to analyze")
             
@@ -175,10 +188,8 @@ if st.session_state['role'] in ["Admin", "Analyst"]:
             analyze_btn = st.form_submit_button("Analyze Threat")
             
             if analyze_btn and suspicious_text:
-                # Engine Run 
                 d_type, d_severity, risk_score = calculate_risk_score(suspicious_text)
                 
-                # Database Save Logic
                 new_id = f"T{datetime.datetime.now().strftime('%M%S')}"
                 current_date = datetime.datetime.now().strftime('%Y-%m-%d')
                 
@@ -196,11 +207,14 @@ if st.session_state['role'] in ["Admin", "Analyst"]:
                     updated_data = pd.concat([data, new_record], ignore_index=True)
                     updated_data.to_csv(DATA_FILE, index=False)
                     
-                    # Result mein Risk Score show hoga
-                    st.success(f"🚨 Engine Result: {d_type}")
-                    st.warning(f"🔢 Risk Score: {risk_score}/100 ➔ [{d_severity}]")
+                    # 3. Result ko Session State me save kar diya
+                    st.session_state['last_scan'] = {
+                        'type': d_type,
+                        'severity': d_severity,
+                        'score': risk_score
+                    }
                     
-                    st.rerun() 
+                    st.rerun() # Refresh hoga, charts badlenge, aur score screen par bana rahega!
                 except Exception as e:
                     st.error(f"Error saving data: {e}")
 # ==========================================
