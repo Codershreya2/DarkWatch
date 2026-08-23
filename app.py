@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 import hashlib
+import os
 
 st.set_page_config(
     page_title="DarkWatch",
@@ -15,6 +16,18 @@ st.set_page_config(
 # ==========================================
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
+
+# --- AUDIT LOGGER (Pillar 5) ---
+def log_action(username, action, details):
+    """Actions ko chupke se audit.log file me likhta hai"""
+    log_file = Path(__file__).parent / "audit.log"
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    log_entry = f"[{timestamp}] USER: {username} | ACTION: {action} | DETAILS: {details}\n"
+    
+    # Mode "a" ka matlab append 
+    with open(log_file, "a") as f:
+        f.write(log_entry)
+# -------------------------------
 
 if 'logged_in' not in st.session_state:
     st.session_state['logged_in'] = False
@@ -47,7 +60,8 @@ if not st.session_state['logged_in']:
                     if entered_user in db and db[entered_user]["password_hash"] == hash_password(entered_pass):
                         st.session_state['logged_in'] = True
                         st.session_state['username'] = entered_user
-                        st.session_state['role'] = db[entered_user]["role"]
+                        st.session_state['role'] = db[entered_user]["role"]log_action(entered_user, "LOGIN", "User authenticated successfully")
+                        
                         st.rerun()
                     else:
                         st.error("❌ Access Denied: Invalid Credentials")
@@ -206,7 +220,7 @@ if st.session_state['role'] in ["Admin", "Analyst"]:
                 try:
                     updated_data = pd.concat([data, new_record], ignore_index=True)
                     updated_data.to_csv(DATA_FILE, index=False)
-                    
+                    log_action(st.session_state['username'], "THREAT_ADDED", f"Type: {d_type}, Score: {risk_score}")
                     # 3. Result ko Session State me save kar diya
                     st.session_state['last_scan'] = {
                         'type': d_type,
