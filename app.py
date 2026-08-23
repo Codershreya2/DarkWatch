@@ -116,50 +116,66 @@ if missing_columns:
 data["date"] = pd.to_datetime(data["date"], errors="coerce")
 
 # ==========================================
-# 🛠️ ADMIN CONTROL PANEL (Add New Threat)
+# 🕵️ THREAT DETECTION ENGINE (Real AI/Logic)
 # ==========================================
 import datetime
 
-# Yeh feature sirf Admin ko dikhega!
-if st.session_state['role'] == "Admin":
-    with st.sidebar.expander("🛠️ Admin Tools: Add Threat"):
-        with st.form("add_threat_form"):
-            st.write("Inject New Threat to Database")
+# Aapka Threat Analysis Logic
+def analyze_text_for_threats(text):
+    text = text.lower()
+    
+    # Detection Rules
+    if any(word in text for word in ["0-day", "exploit", "cve"]):
+        return "Zero-Day Exploit", "Critical"
+    elif any(word in text for word in ["ransom", "encrypt", "bitcoin"]):
+        return "Ransomware", "Critical"
+    elif any(word in text for word in ["database", "leak", "dump", "passwords"]):
+        return "Data Breach", "High"
+    elif any(word in text for word in ["login", "fake page", "phish"]):
+        return "Phishing", "Medium"
+    elif any(word in text for word in ["ddos", "botnet", "c2"]):
+        return "Botnet", "Medium"
+    else:
+        return "Suspicious Activity", "Low"
+
+# Yeh engine Admin aur Analyst dono use kar sakte hain
+if st.session_state['role'] in ["Admin", "Analyst"]:
+    with st.sidebar.expander("🕵️ Scanner: Detect Threat from Text"):
+        with st.form("detect_threat_form"):
+            st.write("Paste suspicious Dark Web text to analyze")
             
-            # Inputs
-            new_type = st.selectbox("Threat Type", ["Phishing", "Ransomware", "Data Breach", "Zero-Day Exploit", "Botnet"])
-            new_severity = st.selectbox("Severity", ["Low", "Medium", "High", "Critical"])
-            new_source = st.text_input("Source Forum/Site", "RaidForums")
+            # User sirf raw text paste karega
+            suspicious_text = st.text_area("Dark Web Post / Intercepted Chat")
+            source_input = st.text_input("Source (e.g., Telegram, RaidForums)", "Telegram")
+            country_input = st.text_input("Target Country", "India")
             
-            # Yahan hum naya country dalenge taaki filter/graph me automatically add ho jaye
-            new_country = st.text_input("Target Country", "Japan") 
+            analyze_btn = st.form_submit_button("Analyze & Inject")
             
-            add_btn = st.form_submit_button("Inject Threat")
-            
-            if add_btn:
-                # 1. Naya data record 
+            if analyze_btn and suspicious_text:
+                # 1. Aapka function text padh kar threat detect kar raha hai!
+                detected_type, detected_severity = analyze_text_for_threats(suspicious_text)
+                
+                # 2. Database me save karna
                 new_id = f"T{datetime.datetime.now().strftime('%M%S')}"
                 current_date = datetime.datetime.now().strftime('%Y-%m-%d')
                 
                 new_record = pd.DataFrame([{
                     "threat_id": new_id,
-                    "threat_type": new_type,
-                    "severity": new_severity,
-                    "source": new_source,
-                    "country": new_country,
+                    "threat_type": detected_type,
+                    "severity": detected_severity,
+                    "source": source_input,
+                    "country": country_input,
                     "date": current_date,
                     "status": "Active"
                 }])
                 
-                # 2. Old CSV mein naya record add 
                 try:
                     updated_data = pd.concat([data, new_record], ignore_index=True)
                     updated_data.to_csv(DATA_FILE, index=False)
-                    st.success(f"✅ Threat added from {new_country}! Reloading dashboard...")
-                    st.rerun() # Page refresh karega taaki graphs update ho jayein
+                    st.success(f"🚨 Detected: {detected_type} ({detected_severity})! Reloading...")
+                    st.rerun() 
                 except Exception as e:
                     st.error(f"Error saving data: {e}")
-
 # ==========================================
 
 st.title("🛡️ DarkWatch")
