@@ -4,6 +4,8 @@ import plotly.express as px
 import streamlit as st
 import hashlib
 import os
+import datetime
+import re
 
 st.set_page_config(
     page_title="DarkWatch",
@@ -60,7 +62,8 @@ if not st.session_state['logged_in']:
                     if entered_user in db and db[entered_user]["password_hash"] == hash_password(entered_pass):
                         st.session_state['logged_in'] = True
                         st.session_state['username'] = entered_user
-                        st.session_state['role'] = db[entered_user]["role"]log_action(entered_user, "LOGIN", "User authenticated successfully")
+                        st.session_state['role'] = db[entered_user]["role"]
+                        log_action(entered_user, "LOGIN", "User authenticated successfully")
                         
                         st.rerun()
                     else:
