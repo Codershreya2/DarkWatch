@@ -36,10 +36,11 @@ if 'logged_in' not in st.session_state:
     st.session_state['username'] = ''
     st.session_state['role'] = ''
 
+# --- NAYA: Database me Lockout fields add kiye ---
 if 'user_db' not in st.session_state:
     st.session_state['user_db'] = {
-        "admin": {"password_hash": hash_password("admin123"), "role": "Admin"},
-        "analyst1": {"password_hash": hash_password("analyst123"), "role": "Analyst"}
+        "admin": {"password_hash": hash_password("admin123"), "role": "Admin", "failed_attempts": 0, "locked_until": None},
+        "analyst1": {"password_hash": hash_password("analyst123"), "role": "Analyst", "failed_attempts": 0, "locked_until": None}
     }
 
 if not st.session_state['logged_in']:
@@ -59,13 +60,39 @@ if not st.session_state['logged_in']:
                 
                 if submit_btn:
                     db = st.session_state['user_db']
-                    if entered_user in db and db[entered_user]["password_hash"] == hash_password(entered_pass):
-                        st.session_state['logged_in'] = True
-                        st.session_state['username'] = entered_user
-                        st.session_state['role'] = db[entered_user]["role"]
-                        log_action(entered_user, "LOGIN", "User authenticated successfully")
+                    
+                    if entered_user in db:
+                        user_info = db[entered_user]
                         
-                        st.rerun()
+                        # Check 1: Kya account lock hai?
+                        if user_info["locked_until"] and datetime.datetime.now() < user_info["locked_until"]:
+                            time_left = (user_info["locked_until"] - datetime.datetime.now()).seconds // 60
+                            st.error(f"🔒 Account Locked due to multiple failed attempts. Try again in {time_left + 1} minutes.")
+                        else:
+                            # Check 2: Password sahi hai ya nahi?
+                            if user_info["password_hash"] == hash_password(entered_pass):
+                                # Password Sahi - Lock reset karo
+                                st.session_state['user_db'][entered_user]["failed_attempts"] = 0
+                                st.session_state['user_db'][entered_user]["locked_until"] = None
+                                
+                                st.session_state['logged_in'] = True
+                                st.session_state['username'] = entered_user
+                                st.session_state['role'] = user_info["role"]
+                                log_action(entered_user, "LOGIN", "User authenticated successfully")
+                                st.rerun()
+                            else:
+                                # Password Galat - Lockout Counter badhao
+                                attempts = user_info["failed_attempts"] + 1
+                                st.session_state['user_db'][entered_user]["failed_attempts"] = attempts
+                                
+                                if attempts >= 3:
+                                    # 3 baar galat - 5 minute ke liye lock
+                                    lock_time = datetime.datetime.now() + datetime.timedelta(minutes=5)
+                                    st.session_state['user_db'][entered_user]["locked_until"] = lock_time
+                                    log_action(entered_user, "BRUTE_FORCE_ATTEMPT", "Account locked after 3 failed logins")
+                                    st.error("🚨 Security Alert: Account Locked! 3 failed attempts. Wait 5 minutes.")
+                                else:
+                                    st.error(f"❌ Invalid Credentials. Warning: Attempt {attempts}/3")
                     else:
                         st.error("❌ Access Denied: Invalid Credentials")
                         
@@ -85,7 +112,9 @@ if not st.session_state['logged_in']:
                     else:
                         st.session_state['user_db'][new_user] = {
                             "password_hash": hash_password(new_pass),
-                            "role": new_role
+                            "role": new_role,
+                            "failed_attempts": 0,      # Naye user ke liye default
+                            "locked_until": None       # Naye user ke liye default
                         }
                         st.success(f"✅ Success! Account created for '{new_user}'. Please go to Login tab.")
 
