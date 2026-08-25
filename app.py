@@ -233,6 +233,49 @@ if st.session_state['role'] in ["Admin", "Analyst"]:
                     st.error(f"Error saving data: {e}")
 # ==========================================
 
+# ==========================================
+# 🛡️ INCIDENT RESPONSE (Resolve Threats)
+# ==========================================
+# Yeh feature bhi Admin aur Analyst dono ke paas hoga
+if st.session_state['role'] in ["Admin", "Analyst"]:
+    with st.sidebar.expander("🛠️ Action: Resolve Threat"):
+        
+        # Sirf 'Active' status wale threats dhoondhein
+        active_threats = data[data['status'].str.lower() == 'active']
+        
+        if active_threats.empty:
+            st.success("✅ All clear! No active threats right now.")
+        else:
+            with st.form("resolve_form"):
+                st.write("Select a threat to mitigate:")
+                
+                # Dropdown ke liye ID aur Type ko jod kar dikhana (e.g., T4521 - Phishing)
+                options = active_threats['threat_id'].astype(str) + " - " + active_threats['threat_type'].astype(str)
+                selected_threat = st.selectbox("Active Threats", options.tolist())
+                
+                resolve_btn = st.form_submit_button("Mark as Resolved ✅")
+                
+                if resolve_btn and selected_threat:
+                    # ID ko alag nikalna (split karke)
+                    threat_id_to_resolve = selected_threat.split(" - ")[0]
+                    
+                    # Dataframe me status update karna
+                    data.loc[data['threat_id'] == threat_id_to_resolve, 'status'] = 'Resolved'
+                    
+                    try:
+                        # CSV me wapas save karna
+                        data.to_csv(DATA_FILE, index=False)
+                        
+                        # Audit Log me record karna!
+                        log_action(st.session_state['username'], "THREAT_RESOLVED", f"Resolved Threat ID: {threat_id_to_resolve}")
+                        
+                        st.success(f"✅ {threat_id_to_resolve} marked as Resolved!")
+                        import time
+                        time.sleep(2) # 2 second ka pause padhne ke liye
+                        st.rerun() 
+                    except Exception as e:
+                        st.error(f"Error updating file: {e}")
+# ==========================================
 st.title("🛡️ DarkWatch")
 st.subheader("Dark Web Threat Intelligence Dashboard")
 st.write("Monitor, analyze and visualize simulated cyber threat intelligence data.")
