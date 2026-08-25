@@ -233,36 +233,54 @@ if st.session_state['role'] in ["Admin", "Analyst"]:
             
             analyze_btn = st.form_submit_button("Analyze Threat")
             
-            if analyze_btn and suspicious_text:
-                d_type, d_severity, risk_score = calculate_risk_score(suspicious_text)
-                
-                new_id = f"T{datetime.datetime.now().strftime('%M%S')}"
-                current_date = datetime.datetime.now().strftime('%Y-%m-%d')
-                
-                new_record = pd.DataFrame([{
-                    "threat_id": new_id,
-                    "threat_type": d_type,
-                    "severity": d_severity,
-                    "source": source_input,
-                    "country": country_input,
-                    "date": current_date,
-                    "status": "Active"
-                }])
-                
-                try:
-                    updated_data = pd.concat([data, new_record], ignore_index=True)
-                    updated_data.to_csv(DATA_FILE, index=False)
-                    log_action(st.session_state['username'], "THREAT_ADDED", f"Type: {d_type}, Score: {risk_score}")
-                    # 3. Result ko Session State me save kar diya
-                    st.session_state['last_scan'] = {
-                        'type': d_type,
-                        'severity': d_severity,
-                        'score': risk_score
-                    }
+            if analyze_btn:
+                # --- NAYA: INPUT VALIDATION (Security Pillar) ---
+                if len(suspicious_text.strip()) == 0:
+                    st.warning("⚠️ Validation Failed: Threat text cannot be empty.")
+                elif len(source_input.strip()) == 0 or len(country_input.strip()) == 0:
+                    st.warning("⚠️ Validation Failed: Source and Country fields are required.")
+                elif len(suspicious_text) > 2000:
+                    st.warning("⚠️ Validation Failed: Text too long (Max 2000 characters).")
+                else:
+                    # Agar sab theek hai, tabhi aage badho (Original Logic)
+                    d_type, d_severity, risk_score = calculate_risk_score(suspicious_text)
                     
-                    st.rerun() # Refresh hoga, charts badlenge, aur score screen par bana rahega!
-                except Exception as e:
-                    st.error(f"Error saving data: {e}")
+                    new_id = f"T{datetime.datetime.now().strftime('%M%S')}"
+                    current_date = datetime.datetime.now().strftime('%Y-%m-%d')
+                    
+                    new_record = pd.DataFrame([{
+                        "threat_id": new_id,
+                        "threat_type": d_type,
+                        "severity": d_severity,
+                        "source": source_input,
+                        "country": country_input,
+                        "date": current_date,
+                        "status": "Active"
+                    }])
+                    
+                    try:
+                        updated_data = pd.concat([data, new_record], ignore_index=True)
+                        updated_data.to_csv(DATA_FILE, index=False)
+                        
+                        log_action(st.session_state['username'], "THREAT_ADDED", f"Type: {d_type}, Score: {risk_score}")
+                        
+                        ip_pattern = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'
+                        email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+                        
+                        found_ips = re.findall(ip_pattern, suspicious_text)
+                        found_emails = re.findall(email_pattern, suspicious_text)
+                        
+                        st.session_state['last_scan'] = {
+                            'type': d_type,
+                            'severity': d_severity,
+                            'score': risk_score,
+                            'ips': found_ips,
+                            'emails': found_emails
+                        }
+                        
+                        st.rerun() 
+                    except Exception as e:
+                        st.error(f"Error saving data: {e}")
 # ==========================================
 
 # ==========================================
