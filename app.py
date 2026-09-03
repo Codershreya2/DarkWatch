@@ -5,6 +5,7 @@ from supabase import create_client
 from datetime import datetime, timedelta
 import time
 import re
+import bcrypt
 
 # Page config
 st.set_page_config(page_title="DarkWatch", page_icon="🛡️", layout="wide")
@@ -30,79 +31,106 @@ def load_events():
     response = supabase.table("security_events").select("*").execute()
     return pd.DataFrame(response.data)
 
-# Sign up new user with email
-def sign_up_user(email, password, role="User"):
+# Load users from database
+@st.cache_data(ttl=60)
+def load_users():
     supabase = init_supabase()
-    try:
-        response = supabase.auth.sign_up({
-            "email": email,
-            "password": password
-        })
-        
-        if response.user:
-            supabase.auth.update_user({
-                "data": {"role": role}
-            })
-            return True, "Registration successful! Please check your email to verify."
-        else:
-            return False, "Registration failed!"
-    except Exception as e:
-        return False, f"Error: {str(e)}"
+    response = supabase.table("users").select("*").execute()
+    return pd.DataFrame(response.data)
 
-# Sign in user with email
-def sign_in_user(email, password):
+# Save new threat to database
+def save_threat(source, target_country, severity, status, description):
     supabase = init_supabase()
-    try:
-        response = supabase.auth.sign_in_with_password({
-            "email": email,
-            "password": password
-        })
-        
-        if response.user:
-            role = response.user.user_metadata.get("role", "User")
-            return True, "Login successful!", role
-        else:
-            return False, "Login failed!", None
-    except Exception as e:
-        return False, f"Error: {str(e)}", None
+    data = {
+        "source": source,
+        "target_country": target_country,
+        "severity": severity,
+        "status": status,
+        "description": description,
+        "created_at": datetime.now().isoformat()
+    }
+    supabase.table("threats").insert(data).execute()
 
-# Send password reset email
-def send_reset_email(email):
+# Save security event to database
+def save_event(event_type, severity, source_ip, target, status):
     supabase = init_supabase()
-    try:
-        response = supabase.auth.reset_password_for_email(email, {
-            "redirect_to": "http://localhost:8501"
-        })
-        return True, "Reset email sent! Check your inbox."
-    except Exception as e:
-        return False, f"Error: {str(e)}"
+    data = {
+        "event_type": event_type,
+        "severity": severity,
+        "source_ip": source_ip,
+        "target": target,
+        "status": status,
+        "timestamp": datetime.now().isoformat()
+    }
+    supabase.table("security_events").insert(data).execute()
+
+# Register new user (direct to database)
+def register_user(username, password, role="User"):
+    supabase = init_supabase()
+    users_df = load_users()
+    
+    # Check if username already exists
+    if not users_df.empty and username in users_df["username"].values:
+        return False, "Username already exists!"
+    
+    # Hash password
+    hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
+    
+    # Add to database
+    data = {
+        "username": username,
+        "password": hashed.decode('utf-8'),
+        "role": role,
+        "created_at": datetime.now().isoformat()
+    }
+    supabase.table("users").insert(data).execute()
+    return True, "Registration successful! Please login."
+
+# Login user (direct from database)
+def login_user(username, password):
+    supabase = init_supabase()
+    users_df = load_users()
+    
+    if users_df.empty:
+        return False, "No users found!", None
+    
+    user = users_df[users_df["username"] == username]
+    if user.empty:
+        return False, "Invalid username or password!", None
+    
+    stored_hash = user.iloc[0]["password"]
+    if bcrypt.checkpw(password.encode('utf-8'), stored_hash.encode('utf-8')):
+        return True, "Login successful!", user.iloc[0]["role"]
+    else:
+        return False, "Invalid username or password!", None
 
 # Update password
-def update_user_password(new_password):
+def update_password(username, new_password):
     supabase = init_supabase()
-    try:
-        response = supabase.auth.update_user({
-            "password": new_password
-        })
-        return True, "Password updated successfully!"
-    except Exception as e:
-        return False, f"Error: {str(e)}"
+    hashed = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt())
+    users_df = load_users()
+    user_id = users_df[users_df["username"] == username].iloc[0]["id"]
+    
+    supabase.table("users").update({"password": hashed.decode('utf-8')}).eq("id", user_id).execute()
+    return True, "Password updated successfully!"
 
-# Sign out user
-def sign_out_user():
+# Update user profile
+def update_profile(username, new_username):
     supabase = init_supabase()
-    supabase.auth.sign_out()
+    users_df = load_users()
+    user_id = users_df[users_df["username"] == username].iloc[0]["id"]
+    
+    if not users_df.empty and new_username in users_df["username"].values:
+        return False, "Username already exists!"
+    
+    supabase.table("users").update({"username": new_username}).eq("id", user_id).execute()
+    return True, "Profile updated successfully!"
 
-# Load user profile
-def get_user_profile():
+# Delete user (admin only)
+def delete_user(user_id):
     supabase = init_supabase()
-    try:
-        user = supabase.auth.get_user().user
-        if user:
-            return user.email, user.user_metadata.get("role", "User")
-        return None, None
-    except:
-        return None, None
+    supabase.table("users").delete().eq("id", user_id).execute()
+    return True, "User deleted successfully!"
 
 # Password strength checker
 def check_password_strength(password):
@@ -149,8 +177,8 @@ def check_password_strength(password):
 # Initialize session state
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
-if "email" not in st.session_state:
-    st.session_state.email = ""
+if "username" not in st.session_state:
+    st.session_state.username = ""
 if "role" not in st.session_state:
     st.session_state.role = ""
 if "show_register" not in st.session_state:
@@ -163,16 +191,8 @@ if "show_admin" not in st.session_state:
     st.session_state.show_admin = False
 if "reset_token" not in st.session_state:
     st.session_state.reset_token = None
-if "reset_email" not in st.session_state:
-    st.session_state.reset_email = None
-
-# Check if user is already logged in
-if not st.session_state.logged_in:
-    email, role = get_user_profile()
-    if email:
-        st.session_state.logged_in = True
-        st.session_state.email = email
-        st.session_state.role = role
+if "reset_username" not in st.session_state:
+    st.session_state.reset_username = None
 
 # ✅ LOGIN/REGISTER PAGE
 if not st.session_state.logged_in:
@@ -182,31 +202,30 @@ if not st.session_state.logged_in:
     # Forgot Password Page
     if st.session_state.show_forgot_password:
         st.markdown("#### 🔑 Forgot Password")
-        st.info("Enter your email to reset password")
+        st.info("Enter your username to reset password")
         
-        # Check if reset token is already generated
         if st.session_state.reset_token is None:
             with st.form("forgot_password_form"):
-                fp_email = st.text_input("Email")
-                submitted = st.form_submit_button("Send Reset Link")
+                fp_username = st.text_input("Username")
+                submitted = st.form_submit_button("Generate Reset Token")
                 
                 if submitted:
-                    if not fp_email:
-                        st.error("❌ Please enter your email!")
-                    elif "@" not in fp_email:
-                        st.error("❌ Please enter a valid email!")
+                    if not fp_username:
+                        st.error("❌ Please enter your username!")
                     else:
-                        # Generate reset token
-                        reset_token = f"reset_{fp_email}_{int(datetime.now().timestamp())}"
-                        st.session_state.reset_token = reset_token
-                        st.session_state.reset_email = fp_email
-                        
-                        st.success("✅ Reset link generated!")
-                        st.info("💡 For demo purposes, use this token:")
-                        st.code(reset_token)
-                        st.rerun()
+                        users_df = load_users()
+                        if not users_df.empty and fp_username in users_df["username"].values:
+                            reset_token = f"reset_{fp_username}_{int(datetime.now().timestamp())}"
+                            st.session_state.reset_token = reset_token
+                            st.session_state.reset_username = fp_username
+                            
+                            st.success("✅ Reset token generated!")
+                            st.info("💡 Use this token to reset your password:")
+                            st.code(reset_token)
+                            st.rerun()
+                        else:
+                            st.error("❌ Username not found!")
         else:
-            # Show reset form (separate from first form)
             st.success("✅ Reset token generated!")
             st.info("💡 Use this token to reset your password:")
             st.code(st.session_state.reset_token)
@@ -231,13 +250,13 @@ if not st.session_state.logged_in:
                     elif len(new_password) < 8:
                         st.error("❌ Password must be at least 8 characters!")
                     else:
-                        success, message = update_user_password(new_password)
+                        success, message = update_password(st.session_state.reset_username, new_password)
                         if success:
                             st.success("✅ Password reset successful! Please login.")
                             time.sleep(2)
                             st.session_state.show_forgot_password = False
                             st.session_state.reset_token = None
-                            st.session_state.reset_email = None
+                            st.session_state.reset_username = None
                             st.rerun()
                         else:
                             st.error(f"❌ {message}")
@@ -245,7 +264,7 @@ if not st.session_state.logged_in:
         if st.button("← Back to Login"):
             st.session_state.show_forgot_password = False
             st.session_state.reset_token = None
-            st.session_state.reset_email = None
+            st.session_state.reset_username = None
             st.rerun()
     
     # Registration Page
@@ -253,7 +272,7 @@ if not st.session_state.logged_in:
         st.markdown("#### 🔐 New User Registration")
         
         with st.form("register_form"):
-            reg_email = st.text_input("Email")
+            reg_username = st.text_input("Username")
             reg_password = st.text_input("Password", type="password")
             reg_password_confirm = st.text_input("Confirm Password", type="password")
             reg_role = st.selectbox("Role", ["User", "Admin"])
@@ -270,19 +289,18 @@ if not st.session_state.logged_in:
             submitted = st.form_submit_button("Register")
             
             if submitted:
-                if not reg_email or not reg_password:
+                if not reg_username or not reg_password:
                     st.error("❌ Please fill all fields!")
                 elif reg_password != reg_password_confirm:
                     st.error("❌ Passwords do not match!")
                 elif len(reg_password) < 8:
                     st.error("❌ Password must be at least 8 characters!")
-                elif "@" not in reg_email:
-                    st.error("❌ Please enter a valid email!")
                 else:
-                    success, message = sign_up_user(reg_email, reg_password, reg_role)
+                    success, message = register_user(reg_username, reg_password, reg_role)
                     if success:
                         st.success(f"✅ {message}")
-                        st.info("📧 Please check your email to verify your account!")
+                        st.session_state.show_register = False
+                        st.rerun()
                     else:
                         st.error(f"❌ {message}")
         
@@ -293,20 +311,18 @@ if not st.session_state.logged_in:
     # Login Page
     else:
         with st.form("login_form"):
-            email = st.text_input("Email")
+            username = st.text_input("Username")
             password = st.text_input("Password", type="password")
             submitted = st.form_submit_button("Login")
             
             if submitted:
-                if not email or not password:
+                if not username or not password:
                     st.error("❌ Please fill all fields!")
-                elif "@" not in email:
-                    st.error("❌ Please enter a valid email!")
                 else:
-                    success, message, role = sign_in_user(email, password)
+                    success, message, role = login_user(username, password)
                     if success:
                         st.session_state.logged_in = True
-                        st.session_state.email = email
+                        st.session_state.username = username
                         st.session_state.role = role
                         st.rerun()
                     else:
@@ -332,11 +348,12 @@ else:
     if st.session_state.show_profile:
         st.title("👤 My Profile")
         
-        st.markdown(f"**Email:** {st.session_state.email}")
+        st.markdown(f"**Username:** {st.session_state.username}")
         st.markdown(f"**Role:** {st.session_state.role}")
         
         st.markdown("### Change Password")
         with st.form("change_password_form"):
+            old_password = st.text_input("Current Password", type="password")
             new_password = st.text_input("New Password", type="password")
             new_password_confirm = st.text_input("Confirm New Password", type="password")
             
@@ -347,14 +364,36 @@ else:
             submitted = st.form_submit_button("Update Password")
             
             if submitted:
-                if new_password != new_password_confirm:
-                    st.error("❌ Passwords do not match!")
+                success, message, role = login_user(st.session_state.username, old_password)
+                if not success:
+                    st.error("❌ Current password is incorrect!")
+                elif new_password != new_password_confirm:
+                    st.error("❌ New passwords do not match!")
                 elif len(new_password) < 8:
                     st.error("❌ Password must be at least 8 characters!")
                 else:
-                    success, message = update_user_password(new_password)
+                    success, message = update_password(st.session_state.username, new_password)
                     if success:
                         st.success("✅ Password updated successfully!")
+                        time.sleep(1)
+                        st.session_state.show_profile = False
+                        st.rerun()
+                    else:
+                        st.error(f"❌ {message}")
+        
+        st.markdown("### Change Username")
+        with st.form("change_username_form"):
+            new_username = st.text_input("New Username")
+            submitted = st.form_submit_button("Update Username")
+            
+            if submitted:
+                if not new_username:
+                    st.error("❌ Please enter a username!")
+                else:
+                    success, message = update_profile(st.session_state.username, new_username)
+                    if success:
+                        st.success(f"✅ {message}")
+                        st.session_state.username = new_username
                         time.sleep(1)
                         st.session_state.show_profile = False
                         st.rerun()
@@ -388,7 +427,7 @@ else:
                 
                 if submitted:
                     user_id = users_df[users_df["username"] == user_to_delete].iloc[0]["id"]
-                    if user_to_delete == st.session_state.email:
+                    if user_to_delete == st.session_state.username:
                         st.error("❌ Cannot delete yourself!")
                     else:
                         delete_user(user_id)
@@ -403,7 +442,7 @@ else:
         st.stop()
     
     # Main Dashboard
-    st.sidebar.title(f"👤 {st.session_state.email}")
+    st.sidebar.title(f"👤 {st.session_state.username}")
     st.sidebar.markdown(f"🛡️ **Role:** {st.session_state.role}")
     st.sidebar.markdown("---")
     
@@ -424,9 +463,8 @@ else:
             st.rerun()
     
     if st.sidebar.button("Logout"):
-        sign_out_user()
         st.session_state.logged_in = False
-        st.session_state.email = ""
+        st.session_state.username = ""
         st.session_state.role = ""
         st.session_state.show_profile = False
         st.session_state.show_admin = False
