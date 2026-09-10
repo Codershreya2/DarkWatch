@@ -6,6 +6,41 @@ from datetime import datetime, timedelta
 import time
 import re
 
+import bcrypt
+import smtplib
+import random
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
+
+
+def hash_password(password):
+    # Password ko hash me convert karta hai
+    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+
+def verify_password(plain_password, hashed_password):
+    # Plain password ko database wale hash se match karta hai
+    return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
+
+def send_otp_email(receiver_email, otp):
+    sender_email = "YOUR_EMAIL@gmail.com"  # Apna email daalein
+    sender_password = "YOUR_APP_PASSWORD"  # Apna Gmail App Password daalein (Normal password nahi)
+
+    msg = MIMEMultipart()
+    msg['From'] = sender_email
+    msg['To'] = receiver_email
+    msg['Subject'] = "🛡️ DarkWatch - Security OTP"
+    msg.attach(MIMEText(f"Your DarkWatch OTP code is: {otp}\nIt is valid for this session only.", 'plain'))
+
+    try:
+        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.starttls()
+        server.login(sender_email, sender_password)
+        server.send_message(msg)
+        server.quit()
+        return True
+    except Exception as e:
+        return False
 # Page config
 st.set_page_config(page_title="DarkWatch", page_icon="🛡️", layout="wide")
 
@@ -86,19 +121,93 @@ def register_user(username, password, role="User"):
     except Exception as e:
         return False, f"Error: {str(e)}"
 
-# Login user (with debug)
-def login_user(username, password):
-    supabase = init_supabase()
-    users_df = load_users()
-    
-    if users_df.empty:
-        return False, "No users found!", None
-    
-    user = users_df[users_df["username"] == username]
-    if user.empty:
-        return False, "Invalid username or password!", None
-    
-    stored_password = user.iloc[0]["password"]
+# Registration Page
+    elif st.session_state.show_register:
+        st.markdown("#### 🔐 New User Registration")
+
+        if not st.session_state.otp_sent:
+            with st.form("register_form"):
+                reg_username = st.text_input("Username")
+                reg_email = st.text_input("Email Address")
+                reg_password = st.text_input("Password", type="password")
+                reg_role = st.selectbox("Role", ["User", "Admin"])
+                submitted = st.form_submit_button("Send OTP")
+
+                if submitted:
+                    if not reg_username or not reg_email or not reg_password:
+                        st.error("❌ Please fill all fields!")
+                    else:
+                        otp = str(random.randint(100000, 999999))
+                        st.session_state.generated_otp = otp
+                        st.session_state.temp_creds = {"user": reg_username, "email": reg_email, "pass": reg_password, "role": reg_role}
+                        
+                        if send_otp_email(reg_email, otp):
+                            st.session_state.otp_sent = True
+                            st.success(f"✅ OTP sent to {reg_email}")
+                            st.rerun()
+                        else:
+                            st.error("❌ Failed to send email. Check configuration.")
+        else:
+            with st.form("verify_register_otp"):
+                st.info(f"OTP sent to {st.session_state.temp_creds['email']}")
+                entered_otp = st.text_input("Enter 6-digit OTP")
+                if st.form_submit_button("Verify & Register"):
+                    if entered_otp == st.session_state.generated_otp:
+                        creds = st.session_state.temp_creds
+                        success, message = register_user(creds["user"], creds["email"], creds["pass"], creds["role"])
+                        if success:
+                            st.success("✅ " + message)
+                            st.session_state.otp_sent = False
+                            st.session_state.show_register = False
+                            st.rerun()
+                        else:
+                            st.error(f"❌ {message}")
+                    else:
+                        st.error("❌ Incorrect OTP!")
+
+        if st.button("← Cancel & Back to Login"):
+            st.session_state.otp_sent = False
+            st.session_state.show_register = False
+            st.rerun()
+
+    # Login Page
+    else:
+        if not st.session_state.otp_sent:
+            with st.form("login_form"):
+                login_email = st.text_input("Email")
+                password = st.text_input("Password", type="password")
+                submitted = st.form_submit_button("Login")
+
+                if submitted:
+                    success, message, role, username = verify_credentials(login_email, password)
+                    if success:
+                        otp = str(random.randint(100000, 999999))
+                        st.session_state.generated_otp = otp
+                        st.session_state.temp_creds = {"email": login_email, "role": role, "user": username}
+                        
+                        if send_otp_email(login_email, otp):
+                            st.session_state.otp_sent = True
+                            st.rerun()
+                    else:
+                        st.error(f"❌ {message}")
+        else:
+            with st.form("verify_login_otp"):
+                st.info(f"Enter the OTP sent to {st.session_state.temp_creds['email']}")
+                entered_otp = st.text_input("Enter 6-digit OTP")
+                
+                if st.form_submit_button("Verify OTP"):
+                    if entered_otp == st.session_state.generated_otp:
+                        st.session_state.logged_in = True
+                        st.session_state.username = st.session_state.temp_creds["user"]
+                        st.session_state.role = st.session_state.temp_creds["role"]
+                        st.session_state.otp_sent = False # Reset for next time
+                        st.rerun()
+                    else:
+                        st.error("❌ Incorrect OTP!")
+            
+            if st.button("← Cancel Login"):
+                st.session_state.otp_sent = False
+                st.rerun()
     
     # Debug info
     st.write(f"🔍 **Debug Info:**")
@@ -200,6 +309,15 @@ if "reset_token" not in st.session_state:
     st.session_state.reset_token = None
 if "reset_username" not in st.session_state:
     st.session_state.reset_username = None
+
+if "otp_sent" not in st.session_state:
+    st.session_state.otp_sent = False
+if "generated_otp" not in st.session_state:
+    st.session_state.generated_otp = None
+if "temp_email" not in st.session_state:
+    st.session_state.temp_email = None
+if "temp_creds" not in st.session_state:
+    st.session_state.temp_creds = None
 
 # ✅ LOGIN/REGISTER PAGE
 if not st.session_state.logged_in:
