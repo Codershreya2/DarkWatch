@@ -63,7 +63,7 @@ def save_event(event_type, severity, source_ip, target, status):
     }
     supabase.table("security_events").insert(data).execute()
 
-# Register new user (PLAIN PASSWORD - for testing)
+# Register new user
 def register_user(username, password, role="User"):
     supabase = init_supabase()
     users_df = load_users()
@@ -72,17 +72,21 @@ def register_user(username, password, role="User"):
     if not users_df.empty and username in users_df["username"].values:
         return False, "Username already exists!"
     
-    # Add to database (plain password)
+    # Add to database
     data = {
         "username": username,
         "password": password,
         "role": role,
         "created_at": datetime.now().isoformat()
     }
-    supabase.table("users").insert(data).execute()
-    return True, "Registration successful! Please login."
+    
+    try:
+        supabase.table("users").insert(data).execute()
+        return True, "Registration successful! Please login."
+    except Exception as e:
+        return False, f"Error: {str(e)}"
 
-# Login user (PLAIN PASSWORD - for testing)
+# Login user (with debug)
 def login_user(username, password):
     supabase = init_supabase()
     users_df = load_users()
@@ -94,8 +98,16 @@ def login_user(username, password):
     if user.empty:
         return False, "Invalid username or password!", None
     
-    # Direct password match (plain text)
-    if password == user.iloc[0]["password"]:
+    stored_password = user.iloc[0]["password"]
+    
+    # Debug info
+    st.write(f"🔍 **Debug Info:**")
+    st.write(f"Input username: `{username}`")
+    st.write(f"Input password: `{password}`")
+    st.write(f"Stored password: `{stored_password}`")
+    st.write(f"Match: `{password == stored_password}`")
+    
+    if password == stored_password:
         return True, "Login successful!", user.iloc[0]["role"]
     else:
         return False, "Invalid username or password!", None
