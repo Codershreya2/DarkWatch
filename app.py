@@ -5,7 +5,6 @@ from supabase import create_client
 from datetime import datetime, timedelta
 import time
 import re
-import bcrypt
 
 # Page config
 st.set_page_config(page_title="DarkWatch", page_icon="🛡️", layout="wide")
@@ -64,7 +63,7 @@ def save_event(event_type, severity, source_ip, target, status):
     }
     supabase.table("security_events").insert(data).execute()
 
-# Register new user (direct to database)
+# Register new user (PLAIN PASSWORD - for testing)
 def register_user(username, password, role="User"):
     supabase = init_supabase()
     users_df = load_users()
@@ -73,20 +72,17 @@ def register_user(username, password, role="User"):
     if not users_df.empty and username in users_df["username"].values:
         return False, "Username already exists!"
     
-    # Hash password
-    hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
-    
-    # Add to database
+    # Add to database (plain password)
     data = {
         "username": username,
-        "password": hashed.decode('utf-8'),
+        "password": password,
         "role": role,
         "created_at": datetime.now().isoformat()
     }
     supabase.table("users").insert(data).execute()
     return True, "Registration successful! Please login."
 
-# Login user (direct from database)
+# Login user (PLAIN PASSWORD - for testing)
 def login_user(username, password):
     supabase = init_supabase()
     users_df = load_users()
@@ -98,8 +94,8 @@ def login_user(username, password):
     if user.empty:
         return False, "Invalid username or password!", None
     
-    stored_hash = user.iloc[0]["password"]
-    if bcrypt.checkpw(password.encode('utf-8'), stored_hash.encode('utf-8')):
+    # Direct password match (plain text)
+    if password == user.iloc[0]["password"]:
         return True, "Login successful!", user.iloc[0]["role"]
     else:
         return False, "Invalid username or password!", None
@@ -107,11 +103,10 @@ def login_user(username, password):
 # Update password
 def update_password(username, new_password):
     supabase = init_supabase()
-    hashed = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt())
     users_df = load_users()
     user_id = users_df[users_df["username"] == username].iloc[0]["id"]
     
-    supabase.table("users").update({"password": hashed.decode('utf-8')}).eq("id", user_id).execute()
+    supabase.table("users").update({"password": new_password}).eq("id", user_id).execute()
     return True, "Password updated successfully!"
 
 # Update user profile
