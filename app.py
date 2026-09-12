@@ -5,26 +5,32 @@ from supabase import create_client
 from datetime import datetime, timedelta
 import time
 import re
-
 import bcrypt
 import smtplib
 import random
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
+# Page config
+st.set_page_config(page_title="DarkWatch", page_icon="🛡️", layout="wide")
 
-
+# ==========================================
+# HELPER FUNCTIONS (HASHING & EMAIL)
+# ==========================================
 def hash_password(password):
-    # Password ko hash me convert karta hai
     return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
 def verify_password(plain_password, hashed_password):
-    # Plain password ko database wale hash se match karta hai
     return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
 
 def send_otp_email(receiver_email, otp):
-    sender_email = "YOUR_EMAIL@gmail.com"  # Apna email daalein
-    sender_password = "YOUR_APP_PASSWORD"  # Apna Gmail App Password daalein (Normal password nahi)
+    # Secrets se email aur password lena (Hardcode mat karna)
+    try:
+        sender_email = st.secrets["email"]["sender_email"]
+        sender_password = st.secrets["email"]["app_password"]
+    except Exception:
+        st.error("⚠️ Email secrets not configured in .streamlit/secrets.toml!")
+        return False
 
     msg = MIMEMultipart()
     msg['From'] = sender_email
@@ -40,39 +46,36 @@ def send_otp_email(receiver_email, otp):
         server.quit()
         return True
     except Exception as e:
+        st.error(f"Failed to send email: {e}")
         return False
-# Page config
-st.set_page_config(page_title="DarkWatch", page_icon="🛡️", layout="wide")
 
-# Initialize Supabase client with caching
+# ==========================================
+# DATABASE FUNCTIONS
+# ==========================================
 @st.cache_resource
 def init_supabase():
     url = st.secrets["supabase"]["url"]
     key = st.secrets["supabase"]["key"]
     return create_client(url, key)
 
-# Load threats from database with caching
 @st.cache_data(ttl=60)
 def load_threats():
     supabase = init_supabase()
     response = supabase.table("threats").select("*").execute()
     return pd.DataFrame(response.data)
 
-# Load security events from database with caching
 @st.cache_data(ttl=60)
 def load_events():
     supabase = init_supabase()
     response = supabase.table("security_events").select("*").execute()
     return pd.DataFrame(response.data)
 
-# Load users from database
 @st.cache_data(ttl=60)
 def load_users():
     supabase = init_supabase()
     response = supabase.table("users").select("*").execute()
     return pd.DataFrame(response.data)
 
-# Save new threat to database
 def save_threat(source, target_country, severity, status, description):
     supabase = init_supabase()
     data = {
@@ -85,7 +88,6 @@ def save_threat(source, target_country, severity, status, description):
     }
     supabase.table("threats").insert(data).execute()
 
-# Save security event to database
 def save_event(event_type, severity, source_ip, target, status):
     supabase = init_supabase()
     data = {
@@ -98,19 +100,23 @@ def save_event(event_type, severity, source_ip, target, status):
     }
     supabase.table("security_events").insert(data).execute()
 
-# Register new user
-def register_user(username, password, role="User"):
+def register_user(username, email, password, role="User"):
     supabase = init_supabase()
     users_df = load_users()
     
-    # Check if username already exists
-    if not users_df.empty and username in users_df["username"].values:
-        return False, "Username already exists!"
+    # Check if username or email already exists
+    if not users_df.empty:
+        if username in users_df["username"].values:
+            return False, "Username already exists!"
+        if "email" in users_df.columns and email in users_df["email"].values:
+            return False, "Email already exists!"
     
-    # Add to database
+    hashed_password = hash_password(password)
+    
     data = {
         "username": username,
-        "password": password,
+        "email": email,
+        "password": hashed_password,
         "role": role,
         "created_at": datetime.now().isoformat()
     }
@@ -121,116 +127,35 @@ def register_user(username, password, role="User"):
     except Exception as e:
         return False, f"Error: {str(e)}"
 
-# Registration Page
-    elif st.session_state.show_register:
-        st.markdown("#### 🔐 New User Registration")
+def verify_credentials(email, password):
+    supabase = init_supabase()
+    users_df = load_users()
 
-        if not st.session_state.otp_sent:
-            with st.form("register_form"):
-                reg_username = st.text_input("Username")
-                reg_email = st.text_input("Email Address")
-                reg_password = st.text_input("Password", type="password")
-                reg_role = st.selectbox("Role", ["User", "Admin"])
-                submitted = st.form_submit_button("Send OTP")
+    if users_df.empty or "email" not in users_df.columns:
+        return False, "No users found or email column missing!", None, None
 
-                if submitted:
-                    if not reg_username or not reg_email or not reg_password:
-                        st.error("❌ Please fill all fields!")
-                    else:
-                        otp = str(random.randint(100000, 999999))
-                        st.session_state.generated_otp = otp
-                        st.session_state.temp_creds = {"user": reg_username, "email": reg_email, "pass": reg_password, "role": reg_role}
-                        
-                        if send_otp_email(reg_email, otp):
-                            st.session_state.otp_sent = True
-                            st.success(f"✅ OTP sent to {reg_email}")
-                            st.rerun()
-                        else:
-                            st.error("❌ Failed to send email. Check configuration.")
-        else:
-            with st.form("verify_register_otp"):
-                st.info(f"OTP sent to {st.session_state.temp_creds['email']}")
-                entered_otp = st.text_input("Enter 6-digit OTP")
-                if st.form_submit_button("Verify & Register"):
-                    if entered_otp == st.session_state.generated_otp:
-                        creds = st.session_state.temp_creds
-                        success, message = register_user(creds["user"], creds["email"], creds["pass"], creds["role"])
-                        if success:
-                            st.success("✅ " + message)
-                            st.session_state.otp_sent = False
-                            st.session_state.show_register = False
-                            st.rerun()
-                        else:
-                            st.error(f"❌ {message}")
-                    else:
-                        st.error("❌ Incorrect OTP!")
+    user = users_df[users_df["email"] == email]
+    if user.empty:
+        return False, "Invalid email or password!", None, None
 
-        if st.button("← Cancel & Back to Login"):
-            st.session_state.otp_sent = False
-            st.session_state.show_register = False
-            st.rerun()
+    stored_hashed_password = user.iloc[0]["password"]
+    username = user.iloc[0]["username"]
+    role = user.iloc[0]["role"]
 
-    # Login Page
+    if verify_password(password, stored_hashed_password):
+        return True, "Credentials valid!", role, username
     else:
-        if not st.session_state.otp_sent:
-            with st.form("login_form"):
-                login_email = st.text_input("Email")
-                password = st.text_input("Password", type="password")
-                submitted = st.form_submit_button("Login")
+        return False, "Invalid email or password!", None, None
 
-                if submitted:
-                    success, message, role, username = verify_credentials(login_email, password)
-                    if success:
-                        otp = str(random.randint(100000, 999999))
-                        st.session_state.generated_otp = otp
-                        st.session_state.temp_creds = {"email": login_email, "role": role, "user": username}
-                        
-                        if send_otp_email(login_email, otp):
-                            st.session_state.otp_sent = True
-                            st.rerun()
-                    else:
-                        st.error(f"❌ {message}")
-        else:
-            with st.form("verify_login_otp"):
-                st.info(f"Enter the OTP sent to {st.session_state.temp_creds['email']}")
-                entered_otp = st.text_input("Enter 6-digit OTP")
-                
-                if st.form_submit_button("Verify OTP"):
-                    if entered_otp == st.session_state.generated_otp:
-                        st.session_state.logged_in = True
-                        st.session_state.username = st.session_state.temp_creds["user"]
-                        st.session_state.role = st.session_state.temp_creds["role"]
-                        st.session_state.otp_sent = False # Reset for next time
-                        st.rerun()
-                    else:
-                        st.error("❌ Incorrect OTP!")
-            
-            if st.button("← Cancel Login"):
-                st.session_state.otp_sent = False
-                st.rerun()
-    
-    # Debug info
-    st.write(f"🔍 **Debug Info:**")
-    st.write(f"Input username: `{username}`")
-    st.write(f"Input password: `{password}`")
-    st.write(f"Stored password: `{stored_password}`")
-    st.write(f"Match: `{password == stored_password}`")
-    
-    if password == stored_password:
-        return True, "Login successful!", user.iloc[0]["role"]
-    else:
-        return False, "Invalid username or password!", None
-
-# Update password
 def update_password(username, new_password):
     supabase = init_supabase()
     users_df = load_users()
     user_id = users_df[users_df["username"] == username].iloc[0]["id"]
     
-    supabase.table("users").update({"password": new_password}).eq("id", user_id).execute()
+    hashed_password = hash_password(new_password)
+    supabase.table("users").update({"password": hashed_password}).eq("id", user_id).execute()
     return True, "Password updated successfully!"
 
-# Update user profile
 def update_profile(username, new_username):
     supabase = init_supabase()
     users_df = load_users()
@@ -242,13 +167,11 @@ def update_profile(username, new_username):
     supabase.table("users").update({"username": new_username}).eq("id", user_id).execute()
     return True, "Profile updated successfully!"
 
-# Delete user (admin only)
 def delete_user(user_id):
     supabase = init_supabase()
     supabase.table("users").delete().eq("id", user_id).execute()
     return True, "User deleted successfully!"
 
-# Password strength checker
 def check_password_strength(password):
     score = 0
     feedback = []
@@ -290,7 +213,9 @@ def check_password_strength(password):
     
     return strength, color, feedback
 
-# Initialize session state
+# ==========================================
+# SESSION STATE INITIALIZATION
+# ==========================================
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 if "username" not in st.session_state:
@@ -310,21 +235,22 @@ if "reset_token" not in st.session_state:
 if "reset_username" not in st.session_state:
     st.session_state.reset_username = None
 
+# OTP State Variables
 if "otp_sent" not in st.session_state:
     st.session_state.otp_sent = False
 if "generated_otp" not in st.session_state:
     st.session_state.generated_otp = None
-if "temp_email" not in st.session_state:
-    st.session_state.temp_email = None
 if "temp_creds" not in st.session_state:
     st.session_state.temp_creds = None
 
-# ✅ LOGIN/REGISTER PAGE
+# ==========================================
+# AUTHENTICATION UI (LOGIN/REGISTER)
+# ==========================================
 if not st.session_state.logged_in:
     st.title("🛡️ DarkWatch - Cybersecurity Dashboard")
     st.markdown("### Secure Login Required")
     
-    # Forgot Password Page
+    # --- FORGOT PASSWORD PAGE ---
     if st.session_state.show_forgot_password:
         st.markdown("#### 🔑 Forgot Password")
         st.info("Enter your username to reset password")
@@ -343,7 +269,6 @@ if not st.session_state.logged_in:
                             reset_token = f"reset_{fp_username}_{int(datetime.now().timestamp())}"
                             st.session_state.reset_token = reset_token
                             st.session_state.reset_username = fp_username
-                            
                             st.success("✅ Reset token generated!")
                             st.info("💡 Use this token to reset your password:")
                             st.code(reset_token)
@@ -352,7 +277,6 @@ if not st.session_state.logged_in:
                             st.error("❌ Username not found!")
         else:
             st.success("✅ Reset token generated!")
-            st.info("💡 Use this token to reset your password:")
             st.code(st.session_state.reset_token)
             
             st.markdown("### Reset Password")
@@ -392,84 +316,134 @@ if not st.session_state.logged_in:
             st.session_state.reset_username = None
             st.rerun()
     
-    # Registration Page
+    # --- REGISTRATION PAGE ---
     elif st.session_state.show_register:
         st.markdown("#### 🔐 New User Registration")
         
-        with st.form("register_form"):
-            reg_username = st.text_input("Username")
-            reg_password = st.text_input("Password", type="password")
-            reg_password_confirm = st.text_input("Confirm Password", type="password")
-            reg_role = st.selectbox("Role", ["User", "Admin"])
-            
-            if reg_password:
-                strength, color, feedback = check_password_strength(reg_password)
-                st.markdown(f"**Password Strength:** {strength} {color}")
+        if not st.session_state.otp_sent:
+            with st.form("register_form"):
+                reg_username = st.text_input("Username")
+                reg_email = st.text_input("Email Address")
+                reg_password = st.text_input("Password", type="password")
+                reg_password_confirm = st.text_input("Confirm Password", type="password")
+                reg_role = st.selectbox("Role", ["User", "Admin"])
                 
-                if feedback:
-                    st.markdown("**Missing:** " + ", ".join(feedback))
-                else:
-                    st.success("✅ All password requirements met!")
-            
-            submitted = st.form_submit_button("Register")
-            
-            if submitted:
-                if not reg_username or not reg_password:
-                    st.error("❌ Please fill all fields!")
-                elif reg_password != reg_password_confirm:
-                    st.error("❌ Passwords do not match!")
-                elif len(reg_password) < 8:
-                    st.error("❌ Password must be at least 8 characters!")
-                else:
-                    success, message = register_user(reg_username, reg_password, reg_role)
-                    if success:
-                        st.success(f"✅ {message}")
-                        st.session_state.show_register = False
-                        st.rerun()
+                if reg_password:
+                    strength, color, feedback = check_password_strength(reg_password)
+                    st.markdown(f"**Password Strength:** {strength} {color}")
+                
+                submitted = st.form_submit_button("Send OTP")
+                
+                if submitted:
+                    if not reg_username or not reg_email or not reg_password:
+                        st.error("❌ Please fill all fields!")
+                    elif reg_password != reg_password_confirm:
+                        st.error("❌ Passwords do not match!")
+                    elif len(reg_password) < 8:
+                        st.error("❌ Password must be at least 8 characters!")
                     else:
-                        st.error(f"❌ {message}")
-        
-        if st.button("← Back to Login"):
+                        # Check database before sending OTP
+                        users_df = load_users()
+                        if not users_df.empty and reg_username in users_df["username"].values:
+                            st.error("❌ Username already exists!")
+                        elif not users_df.empty and "email" in users_df.columns and reg_email in users_df["email"].values:
+                            st.error("❌ Email already registered!")
+                        else:
+                            otp = str(random.randint(100000, 999999))
+                            st.session_state.generated_otp = otp
+                            st.session_state.temp_creds = {"user": reg_username, "email": reg_email, "pass": reg_password, "role": reg_role}
+                            
+                            if send_otp_email(reg_email, otp):
+                                st.session_state.otp_sent = True
+                                st.success(f"✅ OTP sent to {reg_email}")
+                                st.rerun()
+        else:
+            with st.form("verify_register_otp"):
+                st.info(f"OTP sent to {st.session_state.temp_creds['email']}")
+                entered_otp = st.text_input("Enter 6-digit OTP")
+                if st.form_submit_button("Verify & Register"):
+                    if entered_otp == st.session_state.generated_otp:
+                        creds = st.session_state.temp_creds
+                        success, message = register_user(creds["user"], creds["email"], creds["pass"], creds["role"])
+                        if success:
+                            st.success("✅ " + message)
+                            st.session_state.otp_sent = False
+                            st.session_state.show_register = False
+                            time.sleep(2)
+                            st.rerun()
+                        else:
+                            st.error(f"❌ {message}")
+                    else:
+                        st.error("❌ Incorrect OTP!")
+
+        if st.button("← Cancel & Back to Login"):
+            st.session_state.otp_sent = False
             st.session_state.show_register = False
             st.rerun()
     
-    # Login Page
+    # --- LOGIN PAGE ---
     else:
-        with st.form("login_form"):
-            username = st.text_input("Username")
-            password = st.text_input("Password", type="password")
-            submitted = st.form_submit_button("Login")
-            
-            if submitted:
-                if not username or not password:
-                    st.error("❌ Please fill all fields!")
-                else:
-                    success, message, role = login_user(username, password)
-                    if success:
+        if not st.session_state.otp_sent:
+            with st.form("login_form"):
+                login_email = st.text_input("Email")
+                password = st.text_input("Password", type="password")
+                submitted = st.form_submit_button("Login")
+                
+                if submitted:
+                    if not login_email or not password:
+                        st.error("❌ Please fill all fields!")
+                    else:
+                        success, message, role, username = verify_credentials(login_email, password)
+                        if success:
+                            otp = str(random.randint(100000, 999999))
+                            st.session_state.generated_otp = otp
+                            st.session_state.temp_creds = {"email": login_email, "role": role, "user": username}
+                            
+                            if send_otp_email(login_email, otp):
+                                st.session_state.otp_sent = True
+                                st.rerun()
+                        else:
+                            st.error(f"❌ {message}")
+        else:
+            with st.form("verify_login_otp"):
+                st.info(f"Enter the OTP sent to {st.session_state.temp_creds['email']}")
+                entered_otp = st.text_input("Enter 6-digit OTP")
+                
+                if st.form_submit_button("Verify OTP"):
+                    if entered_otp == st.session_state.generated_otp:
                         st.session_state.logged_in = True
-                        st.session_state.username = username
-                        st.session_state.role = role
+                        st.session_state.username = st.session_state.temp_creds["user"]
+                        st.session_state.role = st.session_state.temp_creds["role"]
+                        st.session_state.otp_sent = False
                         st.rerun()
                     else:
-                        st.error(f"❌ {message}")
-        
-        st.markdown("---")
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("🆕 Don't have an account? Register"):
-                st.session_state.show_register = True
-                st.rerun()
-        with col2:
-            if st.button("🔑 Forgot Password?"):
-                st.session_state.show_forgot_password = True
+                        st.error("❌ Incorrect OTP!")
+            
+            if st.button("← Cancel Login"):
+                st.session_state.otp_sent = False
                 st.rerun()
         
-        st.info("🔒 This dashboard requires authentication. Contact admin for access.")
-        st.stop()
+        if not st.session_state.otp_sent:
+            st.markdown("---")
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("🆕 Don't have an account? Register"):
+                    st.session_state.show_register = True
+                    st.rerun()
+            with col2:
+                if st.button("🔑 Forgot Password?"):
+                    st.session_state.show_forgot_password = True
+                    st.rerun()
+            
+            st.info("🔒 This dashboard requires authentication. Contact admin for access.")
+            
+    st.stop()
 
-# ✅ DASHBOARD CODE
+# ==========================================
+# DASHBOARD CODE (POST-LOGIN)
+# ==========================================
 else:
-    # Profile Page
+    # --- PROFILE PAGE ---
     if st.session_state.show_profile:
         st.title("👤 My Profile")
         
@@ -489,7 +463,11 @@ else:
             submitted = st.form_submit_button("Update Password")
             
             if submitted:
-                success, message, role = login_user(st.session_state.username, old_password)
+                # We need email to verify current password now. Get it from DB.
+                users_df = load_users()
+                user_email = users_df[users_df["username"] == st.session_state.username].iloc[0]["email"]
+                
+                success, message, _, _ = verify_credentials(user_email, old_password)
                 if not success:
                     st.error("❌ Current password is incorrect!")
                 elif new_password != new_password_confirm:
@@ -531,7 +509,7 @@ else:
         
         st.stop()
     
-    # Admin Panel
+    # --- ADMIN PANEL ---
     elif st.session_state.show_admin and st.session_state.role == "Admin":
         st.title("👨‍💼 Admin Panel")
         
@@ -541,8 +519,12 @@ else:
             st.info("📭 No users found!")
         else:
             st.markdown("### Manage Users")
+            # Added Email to display
+            display_columns = ["id", "username", "role", "created_at"]
+            if "email" in users_df.columns:
+                display_columns.insert(2, "email")
             
-            display_df = users_df[["id", "username", "role", "created_at"]].copy()
+            display_df = users_df[display_columns].copy()
             st.dataframe(display_df, use_container_width=True)
             
             st.markdown("### Delete User")
@@ -566,7 +548,7 @@ else:
         
         st.stop()
     
-    # Main Dashboard
+    # --- MAIN DASHBOARD ---
     st.sidebar.title(f"👤 {st.session_state.username}")
     st.sidebar.markdown(f"🛡️ **Role:** {st.session_state.role}")
     st.sidebar.markdown("---")
