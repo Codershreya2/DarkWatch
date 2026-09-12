@@ -248,6 +248,7 @@ if "temp_creds" not in st.session_state:
 # ==========================================
 if not st.session_state.logged_in:
     st.title("🛡️ DarkWatch - Cybersecurity Dashboard")
+    st.write("Loaded Secrets:", list(st.secrets.keys()))
     st.markdown("### Secure Login Required")
     
     # --- FORGOT PASSWORD PAGE ---
