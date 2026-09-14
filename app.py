@@ -667,7 +667,7 @@ if not st.session_state.show_profile and not st.session_state.show_admin:
         st.rerun()
     
     st.markdown("---")
-    st.caption("Built with Streamlit + Supabase | DarkWatch Security Team")
+    st.caption("Built with 💙 by DarkWatch Security Team | Powered by Streamlit + Supabase")
 
 # Profile Page
 elif st.session_state.show_profile:
