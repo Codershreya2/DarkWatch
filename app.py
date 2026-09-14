@@ -9,6 +9,10 @@ from supabase import create_client, Client
 from datetime import datetime, timedelta
 import random
 import os
+<<<<<<< HEAD
+=======
+from dotenv import load_dotenv
+>>>>>>> 53b04aca95df913f2067a67e422087ac318d80d4
 
 # ---------------------------
 # Page Config & Session Init
@@ -632,4 +636,8 @@ else:
 
             with tab3:
                 st.subheader("Audit Logs")
+<<<<<<< HEAD
                 st.info("ℹ️ Audit logs feature coming soon.")
+=======
+                st.info("ℹ️ Audit logs feature coming soon.")
+>>>>>>> 53b04aca95df913f2067a67e422087ac318d80d4
