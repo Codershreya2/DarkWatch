@@ -441,15 +441,18 @@ with st.sidebar:
     if st.button("📊 Dashboard"):
         st.session_state.show_profile = False
         st.session_state.show_admin = False
+        st.rerun()
     
     if st.button("👤 My Profile"):
         st.session_state.show_profile = True
         st.session_state.show_admin = False
+        st.rerun()
     
     if st.session_state.role == "Admin":
         if st.button("👨‍💼 Admin Panel"):
             st.session_state.show_admin = True
             st.session_state.show_profile = False
+            st.rerun()
     
     if st.button("🚪 Logout"):
         st.session_state.logged_in = False
