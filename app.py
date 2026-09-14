@@ -24,12 +24,11 @@ def verify_password(plain_password, hashed_password):
     return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
 
 def send_otp_email(receiver_email, otp):
-    # Secrets se email aur password lena (Hardcode mat karna)
     try:
         sender_email = st.secrets["email"]["sender_email"]
         sender_password = st.secrets["email"]["app_password"]
-    except Exception:
-        st.error("⚠️ Email secrets not configured in .streamlit/secrets.toml!")
+    except Exception as e:
+        st.error(f"⚠️ Email secrets error: {e}")
         return False
 
     msg = MIMEMultipart()
@@ -46,7 +45,7 @@ def send_otp_email(receiver_email, otp):
         server.quit()
         return True
     except Exception as e:
-        st.error(f"Failed to send email: {e}")
+        st.error(f"❌ Failed to send email: {e}")
         return False
 
 # ==========================================
@@ -104,7 +103,6 @@ def register_user(username, email, password, role="User"):
     supabase = init_supabase()
     users_df = load_users()
     
-    # Check if username or email already exists
     if not users_df.empty:
         if username in users_df["username"].values:
             return False, "Username already exists!"
@@ -235,7 +233,6 @@ if "reset_token" not in st.session_state:
 if "reset_username" not in st.session_state:
     st.session_state.reset_username = None
 
-# OTP State Variables
 if "otp_sent" not in st.session_state:
     st.session_state.otp_sent = False
 if "generated_otp" not in st.session_state:
@@ -248,7 +245,6 @@ if "temp_creds" not in st.session_state:
 # ==========================================
 if not st.session_state.logged_in:
     st.title("🛡️ DarkWatch - Cybersecurity Dashboard")
-    st.write("Loaded Secrets:", list(st.secrets.keys()))
     st.markdown("### Secure Login Required")
     
     # --- FORGOT PASSWORD PAGE ---
@@ -343,7 +339,6 @@ if not st.session_state.logged_in:
                     elif len(reg_password) < 8:
                         st.error("❌ Password must be at least 8 characters!")
                     else:
-                        # Check database before sending OTP
                         users_df = load_users()
                         if not users_df.empty and reg_username in users_df["username"].values:
                             st.error("❌ Username already exists!")
@@ -358,6 +353,8 @@ if not st.session_state.logged_in:
                                 st.session_state.otp_sent = True
                                 st.success(f"✅ OTP sent to {reg_email}")
                                 st.rerun()
+                            else:
+                                st.error("❌ Failed to send OTP. Check email configuration.")
         else:
             with st.form("verify_register_otp"):
                 st.info(f"OTP sent to {st.session_state.temp_creds['email']}")
@@ -403,6 +400,8 @@ if not st.session_state.logged_in:
                             if send_otp_email(login_email, otp):
                                 st.session_state.otp_sent = True
                                 st.rerun()
+                            else:
+                                st.error("❌ Failed to send OTP. Check email configuration.")
                         else:
                             st.error(f"❌ {message}")
         else:
@@ -444,10 +443,142 @@ if not st.session_state.logged_in:
 # DASHBOARD CODE (POST-LOGIN)
 # ==========================================
 else:
-    # --- PROFILE PAGE ---
-    if st.session_state.show_profile:
-        st.title("👤 My Profile")
+    # Sidebar
+    with st.sidebar:
+        st.title("🛡️ DarkWatch")
+        st.write(f"👤 **User:** {st.session_state.username}")
+        st.write(f"🔐 **Role:** {st.session_state.role}")
         
+        if st.button("🚪 Logout"):
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
+            st.session_state.logged_in = False
+            st.rerun()
+        
+        st.divider()
+        page = st.radio(
+            "📋 Navigation",
+            ["Dashboard", "Threat Scanner", "Security Events", "Analytics", "Profile", "Admin Panel"]
+            if st.session_state.role == "Admin"
+            else ["Dashboard", "Threat Scanner", "Security Events", "Analytics", "Profile"],
+            label_visibility="collapsed"
+        )
+    
+    # Dashboard
+    if page == "Dashboard":
+        st.title("📊 Dashboard")
+        threats_df = load_threats()
+        events_df = load_events()
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total Threats", len(threats_df))
+        with col2:
+            critical = len(threats_df[threats_df["severity"] == "Critical"]) if not threats_df.empty else 0
+            st.metric("Critical Threats", critical)
+        with col3:
+            st.metric("Security Events", len(events_df))
+        
+        if not threats_df.empty:
+            st.subheader("Recent Threats")
+            st.dataframe(threats_df, use_container_width=True, hide_index=True)
+        else:
+            st.info("ℹ️ No threats recorded yet.")
+    
+    # Threat Scanner
+    elif page == "Threat Scanner":
+        st.title("🔍 Threat Scanner")
+        
+        threat_text = st.text_area("Paste threat intelligence text here", height=200)
+        
+        if st.button("Analyze"):
+            if not threat_text.strip():
+                st.warning("⚠️ Please paste some text to analyze.")
+            else:
+                text = threat_text.lower()
+                critical_keywords = ["attack", "breach", "exploit", "zero-day", "ransomware"]
+                high_keywords = ["vulnerability", "leak", "stolen", "credentials", "database"]
+                medium_keywords = ["suspicious", "malicious", "phishing", "malware"]
+                
+                score = 0
+                detected = []
+                
+                for kw in critical_keywords:
+                    if kw in text:
+                        score += 3
+                        detected.append(f"{kw} (+3)")
+                
+                for kw in high_keywords:
+                    if kw in text:
+                        score += 2
+                        detected.append(f"{kw} (+2)")
+                
+                for kw in medium_keywords:
+                    if kw in text:
+                        score += 1
+                        detected.append(f"{kw} (+1)")
+                
+                if score >= 10:
+                    severity = "Critical"
+                    color = "🔴"
+                elif score >= 6:
+                    severity = "High"
+                    color = "🟠"
+                elif score >= 3:
+                    severity = "Medium"
+                    color = "🟡"
+                else:
+                    severity = "Low"
+                    color = "🟢"
+                
+                st.markdown(f"### Threat Score: {score} {color}")
+                st.markdown(f"### Severity: {severity}")
+                
+                if detected:
+                    st.markdown("#### Detected Risk Indicators")
+                    for item in detected:
+                        st.write(f"• {item}")
+                else:
+                    st.info("ℹ️ No known risk indicators detected.")
+                
+                if severity in ["High", "Critical"]:
+                    save_event("Threat Detected", severity, "Threat Scanner", "DarkWatch Monitor", "Investigating")
+                    st.success("✅ High-risk threat logged in Security Events.")
+    
+    # Security Events
+    elif page == "Security Events":
+        st.title("🚨 Security Events")
+        events_df = load_events()
+        
+        if events_df.empty:
+            st.info("ℹ️ No security events recorded yet.")
+        else:
+            severity_filter = st.multiselect("Filter by Severity", options=events_df["severity"].unique(), default=events_df["severity"].unique())
+            filtered_df = events_df[events_df["severity"].isin(severity_filter)]
+            st.dataframe(filtered_df, use_container_width=True, hide_index=True)
+            
+            csv = filtered_df.to_csv(index=False).encode("utf-8")
+            st.download_button("📥 Download CSV", csv, "security_events.csv", "text/csv", key="download-csv")
+    
+    # Analytics
+    elif page == "Analytics":
+        st.title("📈 Analytics")
+        events_df = load_events()
+        
+        if events_df.empty:
+            st.info("ℹ️ No security events recorded yet.")
+        else:
+            col1, col2 = st.columns(2)
+            with col1:
+                st.subheader("Events by Severity")
+                st.bar_chart(events_df["severity"].value_counts())
+            with col2:
+                st.subheader("Events by Status")
+                st.bar_chart(events_df["status"].value_counts())
+    
+    # Profile
+    elif page == "Profile":
+        st.title("👤 My Profile")
         st.markdown(f"**Username:** {st.session_state.username}")
         st.markdown(f"**Role:** {st.session_state.role}")
         
@@ -464,11 +595,10 @@ else:
             submitted = st.form_submit_button("Update Password")
             
             if submitted:
-                # We need email to verify current password now. Get it from DB.
                 users_df = load_users()
                 user_email = users_df[users_df["username"] == st.session_state.username].iloc[0]["email"]
-                
                 success, message, _, _ = verify_credentials(user_email, old_password)
+                
                 if not success:
                     st.error("❌ Current password is incorrect!")
                 elif new_password != new_password_confirm:
@@ -484,8 +614,35 @@ else:
                         st.rerun()
                     else:
                         st.error(f"❌ {message}")
-        
-        st.markdown("### Change Username")
-        with st.form("change_username_form"):
-            new_username = st.text_input("New Username")
-            submitt
+    
+    # Admin Panel
+    elif page == "Admin Panel":
+        if st.session_state.role != "Admin":
+            st.error("❌ Access denied. Admins only.")
+        else:
+            st.title("⚙️ Admin Panel")
+            
+            tab1, tab2 = st.tabs(["Manage Threats", "Manage Users"])
+            
+            with tab1:
+                st.subheader("Manage Threats")
+                threats_df = load_threats()
+                if threats_df.empty:
+                    st.info("ℹ️ No threats recorded yet.")
+                else:
+                    st.dataframe(threats_df, use_container_width=True, hide_index=True)
+                    threat_id = st.text_input("Enter Threat ID to delete")
+                    if st.button("Delete Threat"):
+                        if threat_id:
+                            supabase = init_supabase()
+                            supabase.table("threats").delete().eq("id", threat_id).execute()
+                            st.success("✅ Threat deleted!")
+                            st.rerun()
+            
+            with tab2:
+                st.subheader("Manage Users")
+                users_df = load_users()
+                if users_df.empty:
+                    st.info("ℹ️ No users found.")
+                else:
+                    st.dataframe(users_df, use_container_width=True, hide_index=True)
