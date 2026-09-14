@@ -453,11 +453,11 @@ else:
         if not df.empty:
             st.subheader("Recent Events")
             if "created_at" in df.columns:
-                display_df = df.sort_values("created_at", ascending=False).head(10)[
+                display_df = df.sort_values("created_at", ascending=False)[
                     ["event_type", "severity", "source_ip", "target", "status", "created_at"]
                 ]
             else:
-                display_df = df.head(10)[
+                display_df = df[
                     ["event_type", "severity", "source_ip", "target", "status"]
                 ]
             
