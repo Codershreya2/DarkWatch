@@ -452,7 +452,6 @@ else:
 
         if not df.empty:
             st.subheader("Recent Events")
-            # Check if created_at exists
             if "created_at" in df.columns:
                 display_df = df.sort_values("created_at", ascending=False).head(10)[
                     ["event_type", "severity", "source_ip", "target", "status", "created_at"]
@@ -508,7 +507,11 @@ else:
     elif page == "Security Events":
         st.title("🚨 Security Events - DarkWatch")
 
-        events = supabase.table("security_events").select("*").order("created_at", desc=True).execute().data or []
+        try:
+            events = supabase.table("security_events").select("*").order("created_at", desc=True).execute().data or []
+        except:
+            events = supabase.table("security_events").select("*").execute().data or []
+        
         df = pd.DataFrame(events)
 
         if df.empty:
@@ -522,8 +525,13 @@ else:
 
             filtered_df = df[df["severity"].isin(severity_filter)]
 
+            if "created_at" in df.columns:
+                display_cols = ["event_type", "severity", "source_ip", "target", "status", "created_at"]
+            else:
+                display_cols = ["event_type", "severity", "source_ip", "target", "status"]
+
             st.dataframe(
-                filtered_df[["event_type", "severity", "source_ip", "target", "status", "created_at"] if "created_at" in df.columns else ["event_type", "severity", "source_ip", "target", "status"]],
+                filtered_df[display_cols],
                 use_container_width=True,
                 hide_index=True
             )
@@ -605,40 +613,4 @@ else:
             st.rerun()
 
     elif page == "Admin Panel":
-        if st.session_state.role != "admin":
-            st.error("❌ Access denied. Admins only.")
-        else:
-            st.title("⚙️ Admin Panel - DarkWatch")
-
-            tab1, tab2, tab3 = st.tabs(["Manage Threats", "Manage Users", "Audit Logs"])
-
-            with tab1:
-                st.subheader("Manage Threats")
-                threats = supabase.table("security_events").select("*").execute().data or []
-                df = pd.DataFrame(threats)
-
-                if df.empty:
-                    st.info("ℹ️ No threats recorded yet.")
-                else:
-                    st.dataframe(df, use_container_width=True, hide_index=True)
-
-                    threat_id = st.text_input("Enter Threat ID to delete")
-                    if st.button("Delete Threat"):
-                        if threat_id:
-                            supabase.table("security_events").delete().eq("id", threat_id).execute()
-                            st.success("✅ Threat deleted!")
-                            st.rerun()
-
-            with tab2:
-                st.subheader("Manage Users")
-                users = supabase.table("users").select("*").execute().data or []
-                users_df = pd.DataFrame(users)
-
-                if users_df.empty:
-                    st.info("ℹ️ No users found.")
-                else:
-                    st.dataframe(users_df, use_container_width=True, hide_index=True)
-
-            with tab3:
-                st.subheader("Audit Logs")
-                st.info("ℹ️ Audit logs feature coming soon.")
+        if st.session_state.role !=
