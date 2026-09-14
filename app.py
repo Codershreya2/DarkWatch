@@ -629,11 +629,3 @@ else:
                     st.info("ℹ️ No users found.")
                 else:
                     st.dataframe(users_df, use_container_width=True, hide_index=True)
-
-            with tab3:
-                st.subheader("Audit Logs")
-<<<<<<< HEAD
-                st.info("ℹ️ Audit logs feature coming soon.")
-=======
-                st.info("ℹ️ Audit logs feature coming soon.")
->>>>>>> 53b04aca95df913f2067a67e422087ac318d80d4
