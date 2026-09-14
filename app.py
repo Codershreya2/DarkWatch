@@ -2,13 +2,11 @@ import streamlit as st
 import bcrypt
 import pandas as pd
 import smtplib
-import secrets
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from supabase import create_client, Client
 from datetime import datetime, timedelta
 import random
-import os
 
 # ---------------------------
 # Page Config & Session Init
@@ -454,10 +452,18 @@ else:
 
         if not df.empty:
             st.subheader("Recent Events")
-            st.dataframe(
-                df.sort_values("created_at", ascending=False).head(10)[
+            # Check if created_at exists
+            if "created_at" in df.columns:
+                display_df = df.sort_values("created_at", ascending=False).head(10)[
                     ["event_type", "severity", "source_ip", "target", "status", "created_at"]
-                ],
+                ]
+            else:
+                display_df = df.head(10)[
+                    ["event_type", "severity", "source_ip", "target", "status"]
+                ]
+            
+            st.dataframe(
+                display_df,
                 use_container_width=True,
                 hide_index=True
             )
@@ -517,7 +523,7 @@ else:
             filtered_df = df[df["severity"].isin(severity_filter)]
 
             st.dataframe(
-                filtered_df[["event_type", "severity", "source_ip", "target", "status", "created_at"]],
+                filtered_df[["event_type", "severity", "source_ip", "target", "status", "created_at"] if "created_at" in df.columns else ["event_type", "severity", "source_ip", "target", "status"]],
                 use_container_width=True,
                 hide_index=True
             )
@@ -553,10 +559,13 @@ else:
                 st.bar_chart(status_counts)
 
             st.subheader("Event Timeline")
-            df["created_at"] = pd.to_datetime(df["created_at"])
-            df["date"] = df["created_at"].dt.date
-            timeline = df.groupby(["date", "severity"]).size().unstack(fill_value=0)
-            st.line_chart(timeline)
+            if "created_at" in df.columns:
+                df["created_at"] = pd.to_datetime(df["created_at"])
+                df["date"] = df["created_at"].dt.date
+                timeline = df.groupby(["date", "severity"]).size().unstack(fill_value=0)
+                st.line_chart(timeline)
+            else:
+                st.info("ℹ️ No timestamp data available for timeline.")
 
     elif page == "Profile":
         st.title("👤 Profile - DarkWatch")
@@ -629,3 +638,7 @@ else:
                     st.info("ℹ️ No users found.")
                 else:
                     st.dataframe(users_df, use_container_width=True, hide_index=True)
+
+            with tab3:
+                st.subheader("Audit Logs")
+                st.info("ℹ️ Audit logs feature coming soon.")
