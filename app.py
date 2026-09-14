@@ -9,10 +9,6 @@ from supabase import create_client, Client
 from datetime import datetime, timedelta
 import random
 import os
-<<<<<<< HEAD
-=======
-from dotenv import load_dotenv
->>>>>>> 53b04aca95df913f2067a67e422087ac318d80d4
 
 # ---------------------------
 # Page Config & Session Init
