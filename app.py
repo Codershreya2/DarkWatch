@@ -450,24 +450,26 @@ else:
             investigating = len(df[df["status"] == "Investigating"]) if not df.empty else 0
             st.metric("Investigating", investigating)
 
-        if not df.empty:
+        if df.empty:
+            st.info("ℹ️ No security events recorded yet.")
+        else:
             st.subheader("Recent Events")
+            
+            # Select only these columns that exist
+            available_columns = ["event_type", "severity", "source_ip", "target", "status"]
+            
+            # Add created_at if it exists
             if "created_at" in df.columns:
-                display_df = df.sort_values("created_at", ascending=False)[
-                    ["event_type", "severity", "source_ip", "target", "status", "created_at"]
-                ]
+                available_columns.append("created_at")
+                display_df = df.sort_values("created_at", ascending=False)[available_columns]
             else:
-                display_df = df[
-                    ["event_type", "severity", "source_ip", "target", "status"]
-                ]
+                display_df = df[available_columns]
             
             st.dataframe(
                 display_df,
                 use_container_width=True,
                 hide_index=True
             )
-        else:
-            st.info("ℹ️ No security events recorded yet.")
 
     elif page == "Threat Scanner":
         st.title("🔍 Threat Scanner - DarkWatch")
@@ -613,7 +615,7 @@ else:
             st.rerun()
 
     elif page == "Admin Panel":
-        if st.session_state.role !="admin":
+        if st.session_state.role != "admin":
             st.error("❌ Access denied. Admins only.")
         else:
             st.title("⚙️ Admin Panel - DarkWatch")
