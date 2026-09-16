@@ -242,8 +242,8 @@ def log_user_activity(user_id, activity_type, description, threat_score=None, se
             "activity_type": activity_type,
             "description": description
         }
-        if threat_score:
-            data["threat_score"] = threat_score
+        if threat_score is not None:
+            data["threat_score"] = int(threat_score)  # Convert to int!
         if severity:
             data["severity"] = severity
         
