@@ -197,6 +197,41 @@ def check_password_strength(password):
     
     return strength, color, feedback
 
+def save_feedback(user_id, username, rating, comment=""):
+    """Save user feedback to database"""
+    try:
+        supabase = init_supabase()
+        supabase.table("feedback").insert({
+            "user_id": user_id,
+            "username": username,
+            "rating": rating,
+            "comment": comment
+        }).execute()
+        return True
+    except Exception as e:
+        st.error(f"❌ Failed to save feedback: {e}")
+        return False
+
+def log_user_activity(user_id, activity_type, description, threat_score=None, severity=None):
+    """Log user activity for history"""
+    try:
+        supabase = init_supabase()
+        data = {
+            "user_id": user_id,
+            "activity_type": activity_type,
+            "description": description
+        }
+        if threat_score:
+            data["threat_score"] = threat_score
+        if severity:
+            data["severity"] = severity
+        
+        supabase.table("user_activity").insert(data).execute()
+        return True
+    except Exception as e:
+        st.error(f"❌ Failed to log activity: {e}")
+        return False
+
 # ==========================================
 # SESSION STATE INITIALIZATION
 # ==========================================
@@ -226,6 +261,54 @@ if "generated_otp" not in st.session_state:
     st.session_state.generated_otp = None
 if "temp_creds" not in st.session_state:
     st.session_state.temp_creds = None
+    
+if "show_feedback" not in st.session_state:
+    st.session_state.show_feedback = False
+if "show_logout_feedback" not in st.session_state:
+    st.session_state.show_logout_feedback = False
+if "notifications" not in st.session_state:
+    st.session_state.notifications = []
+    
+# ==========================================
+# FEEDBACK FORM UI
+# ==========================================
+if st.session_state.get("show_feedback", False):
+    st.title("⭐ Give Your Feedback")
+    st.write("We'd love to hear your thoughts about DarkWatch!")
+    
+    with st.form("feedback_form"):
+        rating = st.slider("How would you rate DarkWatch?", 1, 5, 5,
+                        help="1 = Very Bad, 5 = Excellent")
+        comment = st.text_area("Your suggestions or comments (optional)",
+                            height=100,
+                            placeholder="Tell us what you liked or what we can improve...")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            submitted = st.form_submit_button("Submit Feedback", use_container_width=True)
+        with col2:
+            cancel = st.form_submit_button("Cancel", use_container_width=True, type="secondary")
+        
+        if submitted:
+            if save_feedback(st.session_state.user_id, st.session_state.username, rating, comment):
+                st.success("✅ Thank you for your valuable feedback!")
+                # Add notification
+                st.session_state.notifications.append({
+                    "message": "Feedback submitted!",
+                    "type": "success",
+                    "time": datetime.now().strftime("%H:%M:%S")
+                })
+                st.session_state.show_feedback = False
+                time.sleep(2)
+                st.rerun()
+            else:
+                st.error("❌ Failed to submit feedback. Please try again.")
+        
+        if cancel:
+            st.session_state.show_feedback = False
+            st.rerun()
+    
+    st.stop()  # Stop here so main content doesn't load
 
 # ==========================================
 # AUTHENTICATION UI (LOGIN/REGISTER)
@@ -461,6 +544,30 @@ with st.sidebar:
         st.session_state.role = ""
         st.session_state.show_profile = False
         st.session_state.show_admin = False
+        st.rerun()
+        
+        # Notifications section
+    st.markdown("---")
+    st.subheader("🔔 Recent Alerts")
+    
+    if st.session_state.notifications:
+        for notif in st.session_state.notifications[-5:]:
+            if notif["type"] == "success":
+                st.success(f"⚡ {notif['time']}: {notif['message']}", icon="✅")
+            elif notif["type"] == "warning":
+                st.warning(f"⚡ {notif['time']}: {notif['message']}", icon="⚠️")
+            elif notif["type"] == "error":
+                st.error(f"⚡ {notif['time']}: {notif['message']}", icon="❌")
+            else:
+                st.info(f"⚡ {notif['time']}: {notif['message']}", icon="ℹ️")
+    else:
+        st.info("No recent alerts")
+    
+    st.markdown("---")
+    
+    # Feedback button
+    if st.button("⭐ Give Feedback"):
+        st.session_state.show_feedback = True
         st.rerun()
     
     auto_refresh = st.checkbox("🔄 Auto-refresh every 30 seconds", value=False)
@@ -716,7 +823,7 @@ elif st.session_state.show_admin:
     else:
         st.title("⚙️ Admin Panel")
         
-        tab1, tab2 = st.tabs(["Manage Threats", "Manage Users"])
+        tab1, tab2, tab3 = st.tabs(["Manage Threats", "Manage Users", "📊 Feedback"])
         
         with tab1:
             st.subheader("Manage Threats")
@@ -740,3 +847,65 @@ elif st.session_state.show_admin:
                 st.info("ℹ️ No users found.")
             else:
                 st.dataframe(users_df, use_container_width=True, hide_index=True)
+        
+        with tab3:
+            st.subheader("⭐ User Feedback")
+            
+            # Fetch all feedback
+            feedback_data = supabase.table("feedback").select("*").order("created_at", desc=True).execute().data
+            
+            if not feedback_data:
+                st.info("ℹ️ No feedback received yet.")
+            else:
+                feedback_df = pd.DataFrame(feedback_data)
+                
+                # Average rating
+                avg_rating = feedback_df["rating"].mean()
+                total_feedback = len(feedback_df)
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Average Rating", f"{avg_rating:.1f} ⭐")
+                with col2:
+                    st.metric("Total Feedback", total_feedback)
+                with col3:
+                    five_star = len(feedback_df[feedback_df["rating"] == 5])
+                    st.metric("5 Star Reviews", five_star)
+                
+                st.markdown("---")
+                
+                # Rating distribution chart
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.subheader("Rating Distribution")
+                    rating_counts = feedback_df["rating"].value_counts().sort_index()
+                    fig = px.bar(
+                        x=rating_counts.index,
+                        y=rating_counts.values,
+                        labels={"x": "Rating", "y": "Count"},
+                        title="Feedback by Rating",
+                        color=rating_counts.values,
+                        color_continuous_scale="Blues"
+                    )
+                    fig.update_layout(showlegend=False)
+                    st.plotly_chart(fig, use_container_width=True)
+                
+                with col2:
+                    st.subheader("Recent Feedback")
+                    st.dataframe(
+                        feedback_df[["username", "rating", "comment", "created_at"]].head(10),
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                
+                st.markdown("---")
+                
+                # Export button
+                csv = feedback_df.to_csv(index=False).encode("utf-8")
+                st.download_button(
+                    "📥 Download All Feedback",
+                    data=csv,
+                    file_name=f"darkwatch_feedback_{datetime.now().strftime('%Y%m%d')}.csv",
+                    mime="text/csv"
+                )
