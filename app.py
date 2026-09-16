@@ -201,9 +201,10 @@ def save_feedback(user_id, username, rating, comment=""):
     """Save user feedback to database"""
     try:
         supabase = init_supabase()
-        # Use username as fallback if user_id is None
+        # Generate proper UUID if user_id is None
         if not user_id:
-            user_id = f"user_{username}_{int(datetime.now().timestamp())}"
+            import uuid
+            user_id = str(uuid.uuid4())
         
         supabase.table("feedback").insert({
             "user_id": user_id,
