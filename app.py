@@ -10,9 +10,12 @@ import smtplib
 import random
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+import uuid
+
 
 # Page config
 st.set_page_config(page_title="DarkWatch", page_icon="🛡️", layout="wide")
+
 
 # ==========================================
 # HELPER FUNCTIONS (HASHING & EMAIL)
@@ -20,8 +23,10 @@ st.set_page_config(page_title="DarkWatch", page_icon="🛡️", layout="wide")
 def hash_password(password):
     return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
+
 def verify_password(plain_password, hashed_password):
     return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
+
 
 def send_otp_email(receiver_email, otp):
     try:
@@ -48,6 +53,7 @@ def send_otp_email(receiver_email, otp):
         st.error(f"❌ Failed to send email: {e}")
         return False
 
+
 # ==========================================
 # DATABASE FUNCTIONS
 # ==========================================
@@ -57,11 +63,13 @@ def init_supabase():
     key = st.secrets["supabase"]["key"]
     return create_client(url, key)
 
+
 @st.cache_data(ttl=60)
 def load_threats():
     supabase = init_supabase()
     response = supabase.table("threats").select("*").execute()
     return pd.DataFrame(response.data)
+
 
 @st.cache_data(ttl=60)
 def load_events():
@@ -69,11 +77,13 @@ def load_events():
     response = supabase.table("security_events").select("*").execute()
     return pd.DataFrame(response.data)
 
+
 @st.cache_data(ttl=60)
 def load_users():
     supabase = init_supabase()
     response = supabase.table("users").select("*").execute()
     return pd.DataFrame(response.data)
+
 
 def save_threat(source, target_country, severity, status, description):
     supabase = init_supabase()
@@ -88,6 +98,7 @@ def save_threat(source, target_country, severity, status, description):
     supabase.table("threats").insert(data).execute()
     load_threats.clear()
 
+
 def save_event(event_type, severity, source_ip, target, status):
     supabase = init_supabase()
     data = {
@@ -100,6 +111,7 @@ def save_event(event_type, severity, source_ip, target, status):
     }
     supabase.table("security_events").insert(data).execute()
     load_events.clear()
+
 
 def register_user(username, email, password, role="User"):
     supabase = init_supabase()
@@ -127,6 +139,7 @@ def register_user(username, email, password, role="User"):
     except Exception as e:
         return False, f"Error: {str(e)}"
 
+
 def verify_credentials(email, password):
     supabase = init_supabase()
     users_df = load_users()
@@ -147,6 +160,7 @@ def verify_credentials(email, password):
     else:
         return False, "Invalid email or password!", None, None
 
+
 def update_password(username, new_password):
     supabase = init_supabase()
     users_df = load_users()
@@ -155,6 +169,7 @@ def update_password(username, new_password):
     hashed_password = hash_password(new_password)
     supabase.table("users").update({"password": hashed_password}).eq("id", user_id).execute()
     return True, "Password updated successfully!"
+
 
 def check_password_strength(password):
     score = 0
@@ -197,13 +212,13 @@ def check_password_strength(password):
     
     return strength, color, feedback
 
+
 def save_feedback(user_id, username, rating, comment=""):
     """Save user feedback to database"""
     try:
         supabase = init_supabase()
         # Generate proper UUID if user_id is None
         if not user_id:
-            import uuid
             user_id = str(uuid.uuid4())
         
         supabase.table("feedback").insert({
@@ -216,6 +231,7 @@ def save_feedback(user_id, username, rating, comment=""):
     except Exception as e:
         st.error(f"❌ Failed to save feedback: {e}")
         return False
+
 
 def log_user_activity(user_id, activity_type, description, threat_score=None, severity=None):
     """Log user activity for history"""
@@ -236,6 +252,7 @@ def log_user_activity(user_id, activity_type, description, threat_score=None, se
     except Exception as e:
         st.error(f"❌ Failed to log activity: {e}")
         return False
+
 
 # ==========================================
 # SESSION STATE INITIALIZATION
@@ -274,7 +291,9 @@ if "show_logout_feedback" not in st.session_state:
     st.session_state.show_logout_feedback = False
 if "notifications" not in st.session_state:
     st.session_state.notifications = []
-    
+if "show_history" not in st.session_state:
+    st.session_state.show_history = False
+
 # ==========================================
 # FEEDBACK FORM UI
 # ==========================================
@@ -315,6 +334,7 @@ if st.session_state.get("show_feedback", False):
             st.rerun()
     
     st.stop()  # Stop here so main content doesn't load
+
 
 # ==========================================
 # AUTHENTICATION UI (LOGIN/REGISTER)
@@ -483,25 +503,25 @@ if not st.session_state.logged_in:
         else:
             with st.form("verify_login_otp"):
                 st.info(f"Enter the OTP sent to {st.session_state.temp_creds['email']}")
-    entered_otp = st.text_input("Enter 6-digit OTP")
-    
-    if st.form_submit_button("Verify OTP"):
-        if entered_otp == st.session_state.generated_otp:
-            st.session_state.logged_in = True
-            st.session_state.username = st.session_state.temp_creds["user"]
-            st.session_state.email = st.session_state.temp_creds["email"]
-            st.session_state.role = st.session_state.temp_creds["role"]
-            
-            # Set user_id from database
-            users_df = load_users()
-            user_row = users_df[users_df["username"] == st.session_state.username]
-            if not user_row.empty:
-                st.session_state.user_id = user_row.iloc[0]["id"]
-            
-            st.session_state.otp_sent = False
-            st.rerun()
-        else:
-            st.error("❌ Incorrect OTP!")
+                entered_otp = st.text_input("Enter 6-digit OTP")
+                
+                if st.form_submit_button("Verify OTP"):
+                    if entered_otp == st.session_state.generated_otp:
+                        st.session_state.logged_in = True
+                        st.session_state.username = st.session_state.temp_creds["user"]
+                        st.session_state.email = st.session_state.temp_creds["email"]
+                        st.session_state.role = st.session_state.temp_creds["role"]
+                        
+                        # Set user_id from database
+                        users_df = load_users()
+                        user_row = users_df[users_df["username"] == st.session_state.username]
+                        if not user_row.empty:
+                            st.session_state.user_id = user_row.iloc[0]["id"]
+                        
+                        st.session_state.otp_sent = False
+                        st.rerun()
+                    else:
+                        st.error("❌ Incorrect OTP!")
             
             if st.button("← Cancel Login"):
                 st.session_state.otp_sent = False
@@ -522,6 +542,7 @@ if not st.session_state.logged_in:
             st.info("🔒 This dashboard requires authentication. Contact admin for access.")
             
     st.stop()
+
 
 # ==========================================
 # DASHBOARD CODE (POST-LOGIN)
@@ -558,8 +579,8 @@ with st.sidebar:
         st.session_state.show_profile = False
         st.session_state.show_admin = False
         st.rerun()
-        
-        # Notifications section
+    
+    # Notifications section
     st.markdown("---")
     st.subheader("🔔 Recent Alerts")
     
@@ -583,10 +604,18 @@ with st.sidebar:
         st.session_state.show_feedback = True
         st.rerun()
     
+    # History button
+    if st.button("📜 My Activity History"):
+        st.session_state.show_history = True
+        st.session_state.show_profile = False
+        st.session_state.show_admin = False
+        st.rerun()
+    
     auto_refresh = st.checkbox("🔄 Auto-refresh every 30 seconds", value=False)
 
+
 # Main Content
-if not st.session_state.show_profile and not st.session_state.show_admin:
+if not st.session_state.show_profile and not st.session_state.show_admin and not st.session_state.show_history:
     # Dashboard
     st.title("🛡️ DarkWatch")
     st.subheader("Dark Web Threat Intelligence Dashboard")
@@ -711,6 +740,14 @@ if not st.session_state.show_profile and not st.session_state.show_admin:
                 
                 if score >= 6:
                     save_event(event_type="Threat Detected", severity=severity, source_ip="Scanner", target="DarkWatch Monitor", status="Investigating")
+                    # Log to user activity
+                    log_user_activity(
+                        user_id=st.session_state.user_id,
+                        activity_type="Threat Scan",
+                        description=f"Scanned text for threats",
+                        threat_score=score,
+                        severity=severity
+                    )
                     st.success("✅ High-risk threat event saved to database.")
     
     # Manage Threats Tab
@@ -792,6 +829,100 @@ if not st.session_state.show_profile and not st.session_state.show_admin:
     st.markdown("---")
     st.caption("Built with 💙 by DarkWatch Security Team | Powered by Streamlit + Supabase")
 
+
+# User Activity History Page
+elif st.session_state.show_history:
+    st.title("📜 My Activity History")
+    st.write("View all your past activities and threat detections.")
+    
+    # Check if user_id exists
+    if not st.session_state.user_id:
+        st.error("❌ User ID not found. Please login again.")
+        if st.button("← Back to Dashboard"):
+            st.session_state.show_history = False
+            st.rerun()
+        st.stop()
+    
+    # Fetch user activity
+    try:
+        supabase = init_supabase()
+        activity_data = supabase.table("user_activity").select("*").eq("user_id", st.session_state.user_id).order("created_at", desc=True).execute().data
+        
+        if not activity_data:
+            st.info("ℹ️ No activity history found. Start scanning threats to see your history!")
+        else:
+            activity_df = pd.DataFrame(activity_data)
+            
+            # Summary metrics
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                total_activities = len(activity_df)
+                st.metric("Total Activities", total_activities)
+            with col2:
+                high_threats = len(activity_df[activity_df["severity"].isin(["Critical", "High"])])
+                st.metric("High Risk Threats", high_threats)
+            with col3:
+                if "created_at" in activity_df.columns:
+                    first_activity = pd.to_datetime(activity_df["created_at"]).min().strftime("%d %b %Y")
+                    st.metric("First Activity", first_activity)
+            
+            st.markdown("---")
+            
+            # Activity Timeline
+            st.subheader("📅 Activity Timeline")
+            
+            if not activity_df.empty and "created_at" in activity_df.columns:
+                activity_df["created_at"] = pd.to_datetime(activity_df["created_at"])
+                activity_df = activity_df.sort_values("created_at", ascending=False)
+                
+                for idx, row in activity_df.iterrows():
+                    timestamp = row["created_at"].strftime("%d %b %Y, %I:%M %p")
+                    activity_type = row["activity_type"]
+                    description = row.get("description", "")
+                    severity = row.get("severity", "")
+                    threat_score = row.get("threat_score", None)
+                    
+                    # Icon based on severity
+                    if severity == "Critical":
+                        icon = "🔴"
+                    elif severity == "High":
+                        icon = "🟠"
+                    elif severity == "Medium":
+                        icon = "🟡"
+                    elif severity == "Low":
+                        icon = "🟢"
+                    else:
+                        icon = "ℹ️"
+                    
+                    with st.expander(f"{icon} {timestamp} - {activity_type}"):
+                        st.markdown(f"**Type:** {activity_type}")
+                        if description:
+                            st.markdown(f"**Description:** {description}")
+                        if severity:
+                            st.markdown(f"**Severity:** {severity}")
+                        if threat_score:
+                            st.markdown(f"**Threat Score:** {threat_score}")
+                        st.caption(f"Activity ID: {row['id']}")
+            
+            # Export button
+            st.markdown("---")
+            csv = activity_df.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                "📥 Download My Activity History",
+                data=csv,
+                file_name=f"my_activity_history_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv"
+            )
+    except Exception as e:
+        st.error(f"❌ Failed to load activity history: {e}")
+    
+    if st.button("← Back to Dashboard"):
+        st.session_state.show_history = False
+        st.rerun()
+    
+    st.stop()
+
+
 # Profile Page
 elif st.session_state.show_profile:
     st.title("👤 My Profile")
@@ -828,6 +959,7 @@ elif st.session_state.show_profile:
                     st.rerun()
                 else:
                     st.error(f"❌ {message}")
+
 
 # Admin Panel
 elif st.session_state.show_admin:
