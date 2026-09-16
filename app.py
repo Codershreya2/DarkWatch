@@ -243,7 +243,7 @@ def log_user_activity(user_id, activity_type, description, threat_score=None, se
             "description": description
         }
         if threat_score is not None:
-            data["threat_score"] = int(threat_score)  # Convert to int!
+            data["threat_score"] = int(threat_score)
         if severity:
             data["severity"] = severity
         
@@ -252,7 +252,6 @@ def log_user_activity(user_id, activity_type, description, threat_score=None, se
     except Exception as e:
         st.error(f"❌ Failed to log activity: {e}")
         return False
-
 
 # ==========================================
 # SESSION STATE INITIALIZATION
