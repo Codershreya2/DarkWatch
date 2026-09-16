@@ -261,7 +261,8 @@ if "generated_otp" not in st.session_state:
     st.session_state.generated_otp = None
 if "temp_creds" not in st.session_state:
     st.session_state.temp_creds = None
-    
+if "user_id" not in st.session_state:
+    st.session_state.user_id = None
 if "show_feedback" not in st.session_state:
     st.session_state.show_feedback = False
 if "show_logout_feedback" not in st.session_state:
@@ -477,18 +478,25 @@ if not st.session_state.logged_in:
         else:
             with st.form("verify_login_otp"):
                 st.info(f"Enter the OTP sent to {st.session_state.temp_creds['email']}")
-                entered_otp = st.text_input("Enter 6-digit OTP")
-                
-                if st.form_submit_button("Verify OTP"):
-                    if entered_otp == st.session_state.generated_otp:
-                        st.session_state.logged_in = True
-                        st.session_state.username = st.session_state.temp_creds["user"]
-                        st.session_state.email = st.session_state.temp_creds["email"]
-                        st.session_state.role = st.session_state.temp_creds["role"]
-                        st.session_state.otp_sent = False
-                        st.rerun()
-                    else:
-                        st.error("❌ Incorrect OTP!")
+    entered_otp = st.text_input("Enter 6-digit OTP")
+    
+    if st.form_submit_button("Verify OTP"):
+        if entered_otp == st.session_state.generated_otp:
+            st.session_state.logged_in = True
+            st.session_state.username = st.session_state.temp_creds["user"]
+            st.session_state.email = st.session_state.temp_creds["email"]
+            st.session_state.role = st.session_state.temp_creds["role"]
+            
+            # Set user_id from database
+            users_df = load_users()
+            user_row = users_df[users_df["username"] == st.session_state.username]
+            if not user_row.empty:
+                st.session_state.user_id = user_row.iloc[0]["id"]
+            
+            st.session_state.otp_sent = False
+            st.rerun()
+        else:
+            st.error("❌ Incorrect OTP!")
             
             if st.button("← Cancel Login"):
                 st.session_state.otp_sent = False
