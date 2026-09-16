@@ -835,6 +835,13 @@ elif st.session_state.show_history:
     st.title("📜 My Activity History")
     st.write("View all your past activities and threat detections.")
     
+    # Ensure user_id is set
+    if not st.session_state.user_id and st.session_state.username:
+        users_df = load_users()
+        user_row = users_df[users_df["username"] == st.session_state.username]
+        if not user_row.empty:
+            st.session_state.user_id = user_row.iloc[0]["id"]
+    
     # Check if user_id exists
     if not st.session_state.user_id:
         st.error("❌ User ID not found. Please login again.")
@@ -842,6 +849,85 @@ elif st.session_state.show_history:
             st.session_state.show_history = False
             st.rerun()
         st.stop()
+    
+    # Fetch user activity
+    try:
+        supabase = init_supabase()
+        activity_data = supabase.table("user_activity").select("*").eq("user_id", st.session_state.user_id).order("created_at", desc=True).execute().data
+        
+        if not activity_data:
+            st.info("ℹ️ No activity history found. Start scanning threats to see your history!")
+        else:
+            activity_df = pd.DataFrame(activity_data)
+            
+            # Summary metrics
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                total_activities = len(activity_df)
+                st.metric("Total Activities", total_activities)
+            with col2:
+                high_threats = len(activity_df[activity_df["severity"].isin(["Critical", "High"])])
+                st.metric("High Risk Threats", high_threats)
+            with col3:
+                if "created_at" in activity_df.columns:
+                    first_activity = pd.to_datetime(activity_df["created_at"]).min().strftime("%d %b %Y")
+                    st.metric("First Activity", first_activity)
+            
+            st.markdown("---")
+            
+            # Activity Timeline
+            st.subheader("📅 Activity Timeline")
+            
+            if not activity_df.empty and "created_at" in activity_df.columns:
+                activity_df["created_at"] = pd.to_datetime(activity_df["created_at"])
+                activity_df = activity_df.sort_values("created_at", ascending=False)
+                
+                for idx, row in activity_df.iterrows():
+                    timestamp = row["created_at"].strftime("%d %b %Y, %I:%M %p")
+                    activity_type = row["activity_type"]
+                    description = row.get("description", "")
+                    severity = row.get("severity", "")
+                    threat_score = row.get("threat_score", None)
+                    
+                    # Icon based on severity
+                    if severity == "Critical":
+                        icon = "🔴"
+                    elif severity == "High":
+                        icon = "🟠"
+                    elif severity == "Medium":
+                        icon = "🟡"
+                    elif severity == "Low":
+                        icon = "🟢"
+                    else:
+                        icon = "ℹ️"
+                    
+                    with st.expander(f"{icon} {timestamp} - {activity_type}"):
+                        st.markdown(f"**Type:** {activity_type}")
+                        if description:
+                            st.markdown(f"**Description:** {description}")
+                        if severity:
+                            st.markdown(f"**Severity:** {severity}")
+                        if threat_score:
+                            st.markdown(f"**Threat Score:** {threat_score}")
+                        st.caption(f"Activity ID: {row['id']}")
+            
+            # Export button
+            st.markdown("---")
+            csv = activity_df.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                "📥 Download My Activity History",
+                data=csv,
+                file_name=f"my_activity_history_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv"
+            )
+    except Exception as e:
+        st.error(f"❌ Failed to load activity history: {e}")
+    
+    if st.button("← Back to Dashboard"):
+        st.session_state.show_history = False
+        st.rerun()
+    
+    st.stop()
     
     # Fetch user activity
     try:
