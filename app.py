@@ -840,7 +840,7 @@ elif st.session_state.show_history:
         users_df = load_users()
         user_row = users_df[users_df["username"] == st.session_state.username]
         if not user_row.empty:
-            st.session_state.user_id = user_row.iloc[0]["id"]
+            st.session_state.user_id = str(user_row.iloc[0]["id"])
     
     # Check if user_id exists
     if not st.session_state.user_id:
@@ -853,7 +853,9 @@ elif st.session_state.show_history:
     # Fetch user activity
     try:
         supabase = init_supabase()
-        activity_data = supabase.table("user_activity").select("*").eq("user_id", st.session_state.user_id).order("created_at", desc=True).execute().data
+        # Convert user_id to string for query
+        user_id_str = str(st.session_state.user_id)
+        activity_data = supabase.table("user_activity").select("*").eq("user_id", user_id_str).order("created_at", desc=True).execute().data
         
         if not activity_data:
             st.info("ℹ️ No activity history found. Start scanning threats to see your history!")
